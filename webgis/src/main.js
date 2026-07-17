@@ -1,4 +1,5 @@
 import { INITIAL_CENTER, INITIAL_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./config.js";
+import { analyzeComplaintText } from "./client_analyzer.js";
 import { getFeatureType, loadComplaintFeatures } from "./data.js";
 import { createComplaintLayer, createGaodeBasemapLayers, setGaodeBasemapMode } from "./layers.js";
 import { createComplaintStyle } from "./styles.js";
@@ -148,17 +149,9 @@ export async function startWebGis({ setStatus }) {
     setStatus("正在调用 classify_noise_petitions.py 和 recognize_addresses.py...");
 
     try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, region }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.ok) {
-        throw new Error(payload.error || `接口调用失败：${response.status}`);
-      }
-      renderAnalysisResult(elements, payload.result);
-      addHighlightedResult(payload.result);
+      const result = await analyzeComplaintText(text, region);
+      renderAnalysisResult(elements, result);
+      addHighlightedResult(result);
     } catch (error) {
       renderAnalysisResult(elements, error.message || "识别失败", true);
       setStatus(`文本识别失败：${error.message}`, true);

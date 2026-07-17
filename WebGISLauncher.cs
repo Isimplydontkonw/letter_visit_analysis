@@ -187,11 +187,17 @@ internal sealed class LocalWebServer
 
                 string method = parts[0];
                 string urlPath = Uri.UnescapeDataString(parts[1].Split('?')[0]);
-                if (method == "GET" && urlPath == "/api/health")
-                {
-                    WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
-                    return;
-                }
+            if (method == "GET" && urlPath == "/api/health")
+            {
+                WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"ok\":true}"));
+                return;
+            }
+
+            if (method == "GET" && urlPath == "/api/version")
+            {
+                WriteResponse(stream, 200, "application/json; charset=utf-8", Encoding.UTF8.GetBytes("{\"version\":\"portable-csharp-20260717-http-baidu\"}"));
+                return;
+            }
 
                 if (method == "POST" && urlPath == "/api/analyze")
                 {
@@ -413,7 +419,7 @@ internal sealed class LocalWebServer
         try
         {
             string ak = "ZqdaxnNveaYhhyiHR4TqcZY3b3ZxpecO";
-            string url = "https://api.map.baidu.com/geocoding/v3/?output=json&ak=" + Uri.EscapeDataString(ak) + "&address=" + Uri.EscapeDataString(address);
+            string url = "http://api.map.baidu.com/geocoding/v3/?output=json&ak=" + Uri.EscapeDataString(ak) + "&address=" + Uri.EscapeDataString(address);
             using (WebClient client = new WebClient())
             {
                 client.Encoding = Encoding.UTF8;
