@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>噪声信访投诉空间布局 WebGIS</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="webgis-shell">
+      <aside class="sidebar" aria-label="噪声信访统计与筛选">
+        <header class="app-title">
+          <p>2025 年噪声信访</p>
+          <h1>投诉空间布局 WebGIS</h1>
+        </header>
+
+        <section class="summary-grid" aria-label="点位统计">
+          <div class="summary-card">
+            <span>当前显示</span>
+            <strong id="visibleCount">0</strong>
+          </div>
+          <div class="summary-card">
+            <span>全部点位</span>
+            <strong id="totalCount">0</strong>
+          </div>
+        </section>
+
+        <section class="panel-block">
+          <h2>噪声类型筛选</h2>
+          <div id="typeFilters" class="filter-list"></div>
+        </section>
+
+        <section class="panel-block query-panel">
+          <h2>文本分类与地址查询</h2>
+          <form id="analyzeForm" class="query-form">
+            <label>
+              <span>投诉文本</span>
+              <textarea id="complaintText" rows="5" placeholder="输入一段信访投诉文本，自动识别噪声类型、地址和经纬度"></textarea>
+            </label>
+            <label>
+              <span>辅助属地</span>
+              <input id="regionInput" type="text" value="浙江省" />
+            </label>
+            <button id="analyzeButton" type="submit">识别并定位</button>
+          </form>
+          <div id="analysisResult" class="analysis-result">等待输入文本</div>
+        </section>
+
+        <section class="panel-block">
+          <h2>类型统计</h2>
+          <div id="typeStats" class="stat-list"></div>
+        </section>
+
+        <section class="panel-block">
+          <h2>点位详情</h2>
+          <div id="featureDetails" class="details-empty">点击地图点位查看详情</div>
+        </section>
+      </aside>
+
+      <section class="map-section" aria-label="OpenLayers 地图">
+        <div id="map" class="map"></div>
+        <div class="basemap-switcher" aria-label="底图切换">
+          <button id="vectorBasemapButton" class="active" type="button">矢量底图</button>
+          <button id="satelliteBasemapButton" type="button">影像底图</button>
+        </div>
+        <div class="map-actions" aria-label="地图操作">
+          <button id="zoomInButton" type="button" title="放大">+</button>
+          <button id="zoomOutButton" type="button" title="缩小">-</button>
+          <button id="fitButton" type="button">定位全部</button>
+          <button id="resetButton" type="button">重置筛选</button>
+        </div>
+        <div id="popup" class="popup" role="dialog" aria-live="polite"></div>
+        <div id="statusBar" class="status-bar">正在加载 OpenLayers 地图...</div>
+      </section>
+    </main>
+
+    <script src="./data/complaints.js"></script>
+    <script type="module" src="./src/boot.js"></script>
+  </body>
+</html>

@@ -1,0 +1,23 @@
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*.log
+
+# Editor and assistant local state
+.vscode/
+.agents/
+
+# Raw or generated sensitive data
+data/*.xlsx
+webgis/data/complaints.geojson
+webgis/data/complaints.js
+
+# Generated launch/build artifacts
+*.exe
+*.spec
+dist/
+build/
+
+# OS files
+Thumbs.db
+.DS_Store
