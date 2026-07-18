@@ -25,7 +25,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -116,7 +117,8 @@ input {
 }
 
 .query-form textarea,
-.query-form input {
+.query-form input,
+.query-form select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -132,13 +134,15 @@ input {
   line-height: 1.5;
 }
 
-.query-form input {
+.query-form input,
+.query-form select {
   height: 36px;
   padding: 0 10px;
 }
 
 .query-form textarea:focus,
-.query-form input:focus {
+.query-form input:focus,
+.query-form select:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(21, 117, 111, 0.12);
 }
@@ -176,6 +180,26 @@ input {
   color: var(--danger);
   border-color: rgba(155, 45, 45, 0.35);
   background: rgba(255, 246, 246, 0.96);
+}
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  margin-top: 8px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.download-link:hover,
+.download-link:focus-visible {
+  background: var(--accent-dark);
+  outline: none;
 }
 
 .filter-list,

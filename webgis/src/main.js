@@ -1,5 +1,6 @@
 import { INITIAL_CENTER, INITIAL_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./config.js";
 import { analyzeComplaintText } from "./client_analyzer.js";
+import { previewBatchFile, processBatchFile } from "./batch_api.js";
 import { getFeatureType, loadComplaintFeatures } from "./data.js";
 import { createComplaintLayer, createGaodeBasemapLayers, setGaodeBasemapMode } from "./layers.js";
 import { createComplaintStyle } from "./styles.js";
@@ -7,6 +8,8 @@ import {
   createTypeOrder,
   getElements,
   renderAnalysisResult,
+  renderBatchColumns,
+  renderBatchResult,
   renderDetails,
   renderFilters,
   renderStats,
@@ -21,6 +24,7 @@ export async function startWebGis({ setStatus }) {
   let typeOrder = [];
   let currentBasemap = "vector";
   let highlightedFeature = null;
+  let currentBatchUploadId = null;
 
   const complaintLayer = createComplaintLayer(vectorSource, (feature) => (
     createComplaintStyle(feature, selectedFeature, typeOrder)
@@ -161,6 +165,66 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  async function previewBatchInputFile() {
+    const file = elements.batchFileInput.files?.[0];
+    if (!file) {
+      renderBatchResult(elements, "请先选择 Excel 或 CSV 文件。", true);
+      return;
+    }
+
+    elements.batchPreviewButton.disabled = true;
+    elements.batchPreviewButton.textContent = "读取中...";
+    elements.batchProcessButton.disabled = true;
+    renderBatchResult(elements, "正在读取文件列名...", false);
+    setStatus("正在上传文件并读取列名...");
+
+    try {
+      const preview = await previewBatchFile(file);
+      currentBatchUploadId = preview.uploadId;
+      renderBatchColumns(elements, preview.columns || []);
+      renderBatchResult(elements, `已读取 ${preview.filename}，共 ${preview.rows} 行。请选择文本列和属地列。`, false);
+      setStatus(`已读取批处理文件列名：${preview.columns.length} 列。`);
+    } catch (error) {
+      currentBatchUploadId = null;
+      renderBatchResult(elements, error.message || "读取列名失败", true);
+      setStatus(`批处理列名读取失败：${error.message}`, true);
+    } finally {
+      elements.batchPreviewButton.disabled = false;
+      elements.batchPreviewButton.textContent = "读取列名";
+    }
+  }
+
+  async function processBatchInputFile(event) {
+    event.preventDefault();
+    if (!currentBatchUploadId) {
+      renderBatchResult(elements, "请先读取文件列名。", true);
+      return;
+    }
+
+    const contentColumn = elements.batchContentColumn.value;
+    const regionColumn = elements.batchRegionColumn.value;
+    if (!contentColumn) {
+      renderBatchResult(elements, "请选择分类和地址识别文本列。", true);
+      return;
+    }
+
+    elements.batchProcessButton.disabled = true;
+    elements.batchProcessButton.textContent = "处理中...";
+    renderBatchResult(elements, "正在调用 python/classify_noise_petitions.py 和 python/recognize_addresses.py 批量处理...", false);
+    setStatus("正在批量分类、地址识别和地理编码...");
+
+    try {
+      const result = await processBatchFile({ uploadId: currentBatchUploadId, contentColumn, regionColumn });
+      renderBatchResult(elements, result);
+      setStatus(`批量处理完成：${result.filename}`);
+    } catch (error) {
+      renderBatchResult(elements, error.message || "批量处理失败", true);
+      setStatus(`批量处理失败：${error.message}`, true);
+    } finally {
+      elements.batchProcessButton.disabled = false;
+      elements.batchProcessButton.textContent = "批量处理并导出";
+    }
+  }
   map.on("singleclick", (event) => {
     const feature = map.forEachFeatureAtPixel(event.pixel, (candidate) => candidate, { hitTolerance: 6 });
     selectFeature(feature);
@@ -182,6 +246,13 @@ export async function startWebGis({ setStatus }) {
   elements.fitButton.addEventListener("click", fitToVisibleFeatures);
   elements.resetButton.addEventListener("click", resetFilters);
   elements.analyzeForm.addEventListener("submit", analyzeInputText);
+  elements.batchPreviewButton.addEventListener("click", previewBatchInputFile);
+  elements.batchForm.addEventListener("submit", processBatchInputFile);
+  elements.batchFileInput.addEventListener("change", () => {
+    currentBatchUploadId = null;
+    elements.batchProcessButton.disabled = true;
+    renderBatchResult(elements, "文件已选择，请点击读取列名。", false);
+  });
   elements.vectorBasemapButton.addEventListener("click", () => switchBasemap("vector"));
   elements.satelliteBasemapButton.addEventListener("click", () => switchBasemap("satellite"));
 

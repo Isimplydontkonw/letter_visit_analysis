@@ -46,6 +46,31 @@
           <div id="analysisResult" class="analysis-result">等待输入文本</div>
         </section>
 
+
+        <section class="panel-block batch-panel">
+          <h2>批量分类与地址识别</h2>
+          <form id="batchForm" class="query-form">
+            <label>
+              <span>Excel / CSV 文件</span>
+              <input id="batchFileInput" type="file" accept=".xlsx,.xls,.csv" />
+            </label>
+            <button id="batchPreviewButton" type="button">读取列名</button>
+            <label>
+              <span>分类与地址识别文本列</span>
+              <select id="batchContentColumn" disabled>
+                <option value="">请先读取列名</option>
+              </select>
+            </label>
+            <label>
+              <span>辅助属地列</span>
+              <select id="batchRegionColumn" disabled>
+                <option value="">不使用属地列</option>
+              </select>
+            </label>
+            <button id="batchProcessButton" type="submit" disabled>批量处理并导出</button>
+          </form>
+          <div id="batchResult" class="analysis-result">等待上传文件</div>
+        </section>
         <section class="panel-block">
           <h2>类型统计</h2>
           <div id="typeStats" class="stat-list"></div>

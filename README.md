@@ -21,6 +21,26 @@ Copy-Item webgis\config.local.example.js webgis\config.local.js
 
 然后在 `webgis/config.local.js` 中填写自己的百度地图 AK。`config.local.js` 已被 `.gitignore` 忽略，不会提交到 Git。
 
+
+## 启动本地 WebGIS 服务
+
+批量上传 Excel/CSV 并调用 Python 脚本时，需要先启动本地 API 服务：
+
+```powershell
+python python/webgis_api_server.py
+```
+
+启动后访问控制台输出的本地地址，例如 `http://127.0.0.1:8020/`。
+
+网页批量处理流程：
+
+1. 上传 `.xlsx`、`.xls` 或 `.csv` 文件。
+2. 点击“读取列名”。
+3. 选择“分类与地址识别文本列”和“辅助属地列”。
+4. 点击“批量处理并导出”，下载追加分类、地址识别、百度地理编码和 WGS84 坐标字段后的结果表。
+
+批处理临时文件保存在 `.runtime/`，该目录已被 Git 忽略。
+
 ## 敏感数据
 
 以下文件不会提交到 Git：

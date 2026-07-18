@@ -13,6 +13,13 @@ export function getElements() {
     regionInput: document.getElementById("regionInput"),
     analyzeButton: document.getElementById("analyzeButton"),
     analysisResult: document.getElementById("analysisResult"),
+    batchForm: document.getElementById("batchForm"),
+    batchFileInput: document.getElementById("batchFileInput"),
+    batchPreviewButton: document.getElementById("batchPreviewButton"),
+    batchContentColumn: document.getElementById("batchContentColumn"),
+    batchRegionColumn: document.getElementById("batchRegionColumn"),
+    batchProcessButton: document.getElementById("batchProcessButton"),
+    batchResult: document.getElementById("batchResult"),
     popup: document.getElementById("popup"),
     vectorBasemapButton: document.getElementById("vectorBasemapButton"),
     satelliteBasemapButton: document.getElementById("satelliteBasemapButton"),
@@ -140,4 +147,50 @@ export function renderDetails(elements, feature) {
     <p class="popup-text">编号：${escapeHtml(getFeatureId(feature))}</p>
   `;
   elements.popup.hidden = false;
+}
+export function renderBatchColumns(elements, columns) {
+  const options = columns
+    .map((column) => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`)
+    .join("");
+  const contentDefault = columns.includes("诉求内容") ? "诉求内容" : (columns[0] || "");
+  const regionDefault = columns.includes("问题属地") ? "问题属地" : "";
+
+  elements.batchContentColumn.innerHTML = options || '<option value="">未读取到列</option>';
+  elements.batchRegionColumn.innerHTML = '<option value="">不使用属地列</option>' + options;
+  elements.batchContentColumn.value = contentDefault;
+  elements.batchRegionColumn.value = regionDefault;
+  elements.batchContentColumn.disabled = !columns.length;
+  elements.batchRegionColumn.disabled = !columns.length;
+  elements.batchProcessButton.disabled = !columns.length;
+}
+
+export function renderBatchResult(elements, result, isError = false) {
+  elements.batchResult.classList.toggle("error", isError);
+  if (isError) {
+    elements.batchResult.textContent = result;
+    return;
+  }
+
+  if (typeof result === "string") {
+    elements.batchResult.textContent = result;
+    return;
+  }
+
+  const summary = result.summary || {};
+  elements.batchResult.innerHTML = `
+    <div>处理记录：<strong>${escapeHtml(summary.rows ?? "-")}</strong> 条</div>
+    <div>分类统计：${renderSummaryItems(summary.classification)}</div>
+    <div>地址识别：${renderSummaryItems(summary.address)}</div>
+    <div>地理编码：${renderSummaryItems(summary.geocode)}</div>
+    <a class="download-link" href="${escapeHtml(result.downloadUrl)}" download>${escapeHtml(result.filename || "下载处理结果")}</a>
+  `;
+}
+
+function renderSummaryItems(value) {
+  if (!value || !Object.keys(value).length) {
+    return "-";
+  }
+  return Object.entries(value)
+    .map(([key, count]) => `${escapeHtml(key)} ${escapeHtml(count)}`)
+    .join("；");
 }
