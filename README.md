@@ -27,10 +27,16 @@ Copy-Item webgis\config.local.example.js webgis\config.local.js
 批量上传 Excel/CSV 并调用 Python 脚本时，需要先启动本地 API 服务：
 
 ```powershell
-python python/webgis_api_server.py
+.\启动WebGIS.bat
 ```
 
-启动后访问控制台输出的本地地址，例如 `http://127.0.0.1:8020/`。
+双击或运行 `启动WebGIS.bat` 后，脚本会自动启动本地服务并打开网页；不要再使用旧的 `启动WebGIS.exe`。
+
+也可以手动启动服务：
+
+```powershell
+python python/webgis_api_server.py
+```
 
 网页批量处理流程：
 

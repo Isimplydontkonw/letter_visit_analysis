@@ -151,12 +151,20 @@ def recognize_dataframe(df: pd.DataFrame, content_column: str, region_column: st
     result_df["百度地理编码状态"] = geocode_df.get("status", "")
     result_df["百度地理编码消息"] = geocode_df.get("message", "")
 
-    wgs_rows = [bd09_to_wgs84(row.get("lng"), row.get("lat")) for row in geocode_rows]
-    wgs_df = pd.DataFrame(wgs_rows)
-    result_df["WGS84经度"] = wgs_df.get("lng", "")
-    result_df["WGS84纬度"] = wgs_df.get("lat", "")
-    result_df["坐标转换状态"] = wgs_df.get("status", "")
-    result_df["坐标转换消息"] = wgs_df.get("message", "")
+    coordinate_rows: list[dict[str, object]] = []
+    for row in geocode_rows:
+        if is_valid_number(row.get("lng")) and is_valid_number(row.get("lat")):
+            coordinate_rows.append(bd09_to_wgs84_and_gcj02(float(row["lng"]), float(row["lat"])))
+        else:
+            coordinate_rows.append(bd09_to_wgs84(row.get("lng"), row.get("lat")))
+
+    coordinate_df = pd.DataFrame(coordinate_rows)
+    result_df["WGS84经度"] = coordinate_df.get("WGS84经度", coordinate_df.get("lng", ""))
+    result_df["WGS84纬度"] = coordinate_df.get("WGS84纬度", coordinate_df.get("lat", ""))
+    result_df["GCJ02经度"] = coordinate_df.get("GCJ02经度", "")
+    result_df["GCJ02纬度"] = coordinate_df.get("GCJ02纬度", "")
+    result_df["坐标转换状态"] = coordinate_df.get("坐标转换状态", coordinate_df.get("status", ""))
+    result_df["坐标转换消息"] = coordinate_df.get("坐标转换消息", coordinate_df.get("message", ""))
     return result_df
 
 
