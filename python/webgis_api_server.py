@@ -5,6 +5,8 @@ import json
 import mimetypes
 import os
 import re
+import subprocess
+import sys
 import uuid
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -355,6 +357,17 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
 
+
+def open_browser(url: str) -> None:
+    """在本机浏览器中打开 WebGIS 首页；Windows 下显式调用 start 更稳定。"""
+    try:
+        if sys.platform.startswith("win"):
+            subprocess.Popen(["cmd", "/c", "start", "", url], shell=False)
+        else:
+            webbrowser.open(url)
+    except Exception:
+        webbrowser.open(url)
+
 def find_available_port(start: int, end: int) -> int:
     import socket
 
@@ -382,10 +395,10 @@ def main() -> None:
         server = ThreadingHTTPServer(("127.0.0.1", port), WebGisApiHandler)
 
     url = f"http://127.0.0.1:{port}/"
-    print(f"WebGIS 本地服务已启动：{url}")
-    print("批量处理接口：POST /api/batch/preview, POST /api/batch/process")
+    print(f"WebGIS 本地服务已启动：{url}", flush=True)
+    print("批量处理接口：POST /api/batch/preview, POST /api/batch/process", flush=True)
     if not args.no_open:
-        webbrowser.open(url)
+        open_browser(url)
     server.serve_forever()
 
 
