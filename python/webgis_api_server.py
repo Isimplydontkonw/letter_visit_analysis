@@ -14,6 +14,7 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import pandas as pd
 
 from classify_noise_petitions import load_keyword_rules, classify_text
+from prepare_webgis_data import bd09_to_wgs84_and_gcj02, is_valid_number
 from recognize_addresses import (
     baidu_geocode,
     bd09_to_wgs84,
@@ -159,6 +160,19 @@ def recognize_dataframe(df: pd.DataFrame, content_column: str, region_column: st
     return result_df
 
 
+
+def analyze_single_text(text: str, region: str) -> dict[str, object]:
+    """复用批处理逻辑，对网页单条文本执行分类、地址识别和地理编码。"""
+    df = pd.DataFrame([{"事项编号": "临时识别", "诉求内容": text, "问题属地": region}])
+    classified = classify_dataframe(df, "诉求内容")
+    enriched = recognize_dataframe(classified, "诉求内容", "问题属地")
+    result = enriched.iloc[0].to_dict()
+    if is_valid_number(result.get("百度经度")) and is_valid_number(result.get("百度纬度")):
+        converted = bd09_to_wgs84_and_gcj02(float(result["百度经度"]), float(result["百度纬度"]))
+        result.update(converted)
+    result["isHighlight"] = True
+    return {key: ("" if pd.isna(value) else value) for key, value in result.items()}
+
 def summarize_result(df: pd.DataFrame) -> dict[str, object]:
     """返回前端展示用的简要统计。"""
     summary: dict[str, object] = {"rows": int(len(df))}
@@ -190,6 +204,9 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         try:
+            if parsed.path == "/api/analyze":
+                self.handle_analyze()
+                return
             if parsed.path == "/api/batch/preview":
                 self.handle_batch_preview()
                 return
@@ -232,6 +249,14 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
 
+    def handle_analyze(self) -> None:
+        payload = self.read_json()
+        text = str(payload.get("text", "")).strip()
+        region = str(payload.get("region", "浙江省")).strip() or "浙江省"
+        if not text:
+            self.send_json({"ok": False, "error": "请输入投诉文本"}, status=400)
+            return
+        self.send_json({"ok": True, "result": analyze_single_text(text, region)})
     def handle_batch_preview(self) -> None:
         length = int(self.headers.get("Content-Length", "0"))
         filename, file_bytes = parse_multipart_file(self.headers, self.rfile.read(length))

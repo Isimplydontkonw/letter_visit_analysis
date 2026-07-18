@@ -5,6 +5,11 @@ const X_PI = Math.PI * 3000.0 / 180.0;
 let keywordRulesPromise = null;
 
 export async function analyzeComplaintText(text, region) {
+  const serverResult = await analyzeByLocalApi(text, region);
+  if (serverResult) {
+    return normalizeServerResult(serverResult);
+  }
+
   const rules = await loadKeywordRules();
   const classification = classifyText(text, rules);
   const address = extractAddress(text);
@@ -41,6 +46,34 @@ export async function analyzeComplaintText(text, region) {
   }
 
   return result;
+}
+
+
+async function analyzeByLocalApi(text, region) {
+  try {
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, region }),
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    return payload.ok ? payload.result : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeServerResult(result) {
+  const normalized = { ...result };
+  if (Number.isFinite(Number(normalized["WGS84经度"])) && Number.isFinite(Number(normalized["WGS84纬度"]))) {
+    const [gcjLng, gcjLat] = wgs84ToGcj02(Number(normalized["WGS84经度"]), Number(normalized["WGS84纬度"]));
+    normalized["GCJ02经度"] = gcjLng;
+    normalized["GCJ02纬度"] = gcjLat;
+  }
+  return normalized;
 }
 
 async function loadKeywordRules() {
@@ -174,7 +207,7 @@ function geocodeByBaidu(address) {
       cleanup();
       resolve({ ok: false, status: "ERROR", message: "百度地理编码脚本加载失败" });
     };
-    script.src = `http://api.map.baidu.com/geocoding/v3/?output=json&ak=${encodeURIComponent(BAIDU_AK)}&address=${encodeURIComponent(address)}&callback=${callbackName}`;
+    script.src = `https://api.map.baidu.com/geocoding/v3/?output=json&ak=${encodeURIComponent(BAIDU_AK)}&address=${encodeURIComponent(address)}&callback=${callbackName}`;
     document.body.appendChild(script);
 
     function cleanup() {
@@ -191,4 +224,38 @@ function bd09ToGcj02(lng, lat) {
   const z = Math.sqrt(x * x + y * y) - 0.00002 * Math.sin(y * X_PI);
   const theta = Math.atan2(y, x) - 0.000003 * Math.cos(x * X_PI);
   return [z * Math.cos(theta), z * Math.sin(theta)];
+}
+function outOfChina(lng, lat) {
+  return lng < 72.004 || lng > 137.8347 || lat < 0.8293 || lat > 55.8271;
+}
+
+function transformLat(x, y) {
+  let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+  ret += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  ret += ((20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin((y / 3.0) * Math.PI)) * 2.0) / 3.0;
+  ret += ((160.0 * Math.sin((y / 12.0) * Math.PI) + 320 * Math.sin((y * Math.PI) / 30.0)) * 2.0) / 3.0;
+  return ret;
+}
+
+function transformLng(x, y) {
+  let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+  ret += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  ret += ((20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin((x / 3.0) * Math.PI)) * 2.0) / 3.0;
+  ret += ((150.0 * Math.sin((x / 12.0) * Math.PI) + 300.0 * Math.sin((x / 30.0) * Math.PI)) * 2.0) / 3.0;
+  return ret;
+}
+
+function wgs84ToGcj02(lng, lat) {
+  if (outOfChina(lng, lat)) {
+    return [lng, lat];
+  }
+  let dLat = transformLat(lng - 105.0, lat - 35.0);
+  let dLng = transformLng(lng - 105.0, lat - 35.0);
+  const radLat = (lat / 180.0) * Math.PI;
+  let magic = Math.sin(radLat);
+  magic = 1 - 0.00669342162296594323 * magic * magic;
+  const sqrtMagic = Math.sqrt(magic);
+  dLat = (dLat * 180.0) / (((6378245.0 * (1 - 0.00669342162296594323)) / (magic * sqrtMagic)) * Math.PI);
+  dLng = (dLng * 180.0) / ((6378245.0 / sqrtMagic) * Math.cos(radLat) * Math.PI);
+  return [lng + dLng, lat + dLat];
 }
