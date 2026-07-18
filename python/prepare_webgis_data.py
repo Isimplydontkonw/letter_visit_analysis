@@ -18,11 +18,13 @@ except ImportError:
     transform = None
 
 
-DEFAULT_INPUT = Path("data/2025年噪声.xlsx")
-DEFAULT_KEYWORDS = Path("data/噪声关键词.xlsx")
-DEFAULT_OUTPUT = Path("webgis/data/complaints.geojson")
-DEFAULT_JS_OUTPUT = Path("webgis/data/complaints.js")
-DEFAULT_ENRICHED_OUTPUT = Path("data/2025年噪声_webgis处理结果.xlsx")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+DEFAULT_INPUT = PROJECT_ROOT / "data/2025年噪声.xlsx"
+DEFAULT_KEYWORDS = PROJECT_ROOT / "data/噪声关键词.xlsx"
+DEFAULT_OUTPUT = PROJECT_ROOT / "webgis/data/complaints.geojson"
+DEFAULT_JS_OUTPUT = PROJECT_ROOT / "webgis/data/complaints.js"
+DEFAULT_ENRICHED_OUTPUT = PROJECT_ROOT / "data/2025年噪声_webgis处理结果.xlsx"
 
 PI = math.pi
 AXIS = 6378245.0

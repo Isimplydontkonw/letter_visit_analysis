@@ -8,23 +8,25 @@ from typing import Iterable
 import pandas as pd
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 DEFAULT_KEYWORD_PATHS = (
-    Path("data/噪声关键词.xlsx"),
-    Path(".data/噪声关键词.xlsx"),
+    PROJECT_ROOT / "data/噪声关键词.xlsx",
+    PROJECT_ROOT / ".data/噪声关键词.xlsx",
 )
 DEFAULT_DATA_PATHS = (
-    Path("data/2025年噪声.xlsx"),
-    Path(".data/2025年噪声.xlsx"),
+    PROJECT_ROOT / "data/2025年噪声.xlsx",
+    PROJECT_ROOT / ".data/2025年噪声.xlsx",
 )
 
 # 手动路径配置区：
 # 需要直接在 main 中指定文件时，把下面两个变量改成你的绝对路径或相对路径。
 # 例如：
-# MANUAL_INPUT_PATH = Path(r"D:\2026年工作\信访分析\data\新的噪声投诉切片.xlsx")
-# MANUAL_OUTPUT_PATH = Path(r"D:\2026年工作\信访分析\data\新的噪声投诉切片_分类结果.xlsx")
+# MANUAL_INPUT_PATH = Path(r"D:\\2026年工作\\信访分析WebGIS\\data\\新的噪声投诉切片.xlsx")
+# MANUAL_OUTPUT_PATH = Path(r"D:\\2026年工作\\信访分析WebGIS\\data\\新的噪声投诉切片_分类结果.xlsx")
 # 保持为 None 时，脚本会使用命令行参数 --input / --output 或默认路径。
-MANUAL_INPUT_PATH = Path(r"D:\2026年工作\信访分析\data\2025_noise_clip.xlsx")
-MANUAL_OUTPUT_PATH = Path(r"D:\2026年工作\信访分析\data\2025年噪声_噪声分类结果_2.xlsx")
+MANUAL_INPUT_PATH = None
+MANUAL_OUTPUT_PATH = None
 
 # 关键词表中同一个单元格可能混用逗号、顿号、分号和换行，这里统一作为分隔符。
 SPLIT_PATTERN = re.compile(r"[,\uFF0C\u3001;；\n\r\t]+")

@@ -7,9 +7,11 @@ from pathlib import Path
 import pandas as pd
 
 
-DEFAULT_INPUT = Path("data/2025年噪声_噪声分类结果_2.xlsx")
-DEFAULT_GEOJSON_OUTPUT = Path("webgis/data/complaints.geojson")
-DEFAULT_JS_OUTPUT = Path("webgis/data/complaints.js")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+DEFAULT_INPUT = PROJECT_ROOT / "data/2025年噪声_噪声分类结果_2.xlsx"
+DEFAULT_GEOJSON_OUTPUT = PROJECT_ROOT / "webgis/data/complaints.geojson"
+DEFAULT_JS_OUTPUT = PROJECT_ROOT / "webgis/data/complaints.js"
 
 
 def is_valid_coordinate(lng: object, lat: object) -> bool:

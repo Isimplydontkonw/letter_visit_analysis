@@ -15,7 +15,7 @@ export async function loadComplaintFeatures() {
   }
 
   if (!geojson) {
-    throw new Error("未找到投诉点位数据，请先运行 prepare_webgis_data.py 生成 complaints.js 或 complaints.geojson。");
+    throw new Error("未找到投诉点位数据，请先运行 python/prepare_webgis_data.py 生成 complaints.js 或 complaints.geojson。");
   }
 
   const displayGeojson = convertGeojsonWgs84ToGcj02(geojson);

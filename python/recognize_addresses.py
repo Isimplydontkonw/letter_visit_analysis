@@ -19,9 +19,11 @@ except ImportError:
 
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 DEFAULT_INPUT_PATHS = (
-    Path("data/2025年噪声.xlsx"),
-    Path(".data/2025年噪声.xlsx"),
+    PROJECT_ROOT / "data/2025年噪声.xlsx",
+    PROJECT_ROOT / ".data/2025年噪声.xlsx",
 )
 
 # 地址截止词：截取到首次出现的地址实体边界词为止，并保留该截止词。
@@ -280,7 +282,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, default=default_output_path, help="结果输出 Excel 路径")
     parser.add_argument("--content-column", default="诉求内容", help="用于地址识别的文本列名")
     parser.add_argument("--region-column", default="问题属地", help="用于辅助地理编码的属地列名")
-    parser.add_argument("--ak", default="ZqdaxnNveaYhhyiHR4TqcZY3b3ZxpecO", help="百度地图 AK，也可设置 BAIDU_MAP_AK 环境变量")
+    parser.add_argument("--ak", default=os.getenv("BAIDU_MAP_AK"), help="百度地图 AK，也可设置 BAIDU_MAP_AK 环境变量")
     parser.add_argument("--sleep", type=float, default=0.0, help="每次百度 API 请求后的等待秒数，用于控制调用频率")
     parser.add_argument(
         "--no-region-prefix",

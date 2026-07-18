@@ -7,9 +7,9 @@
 - `webgis/`：静态 WebGIS 页面。
 - `webgis/src/`：前端地图、图层、样式和文本识别逻辑。
 - `webgis/data/noise_keywords.tsv`：前端文本分类使用的关键词规则。
-- `classify_noise_petitions.py`：批量噪声类型分类脚本。
-- `recognize_addresses.py`：地址识别和百度地理编码脚本。
-- `prepare_webgis_data.py`、`xlsx_to_webgis_geojson.py`：Excel 转 WebGIS 数据脚本。
+- `python/classify_noise_petitions.py`：批量噪声类型分类脚本。
+- `python/recognize_addresses.py`：地址识别和百度地理编码脚本。
+- `python/prepare_webgis_data.py`、`python/xlsx_to_webgis_geojson.py`：Excel 转 WebGIS 数据脚本。
 
 ## 本地配置
 

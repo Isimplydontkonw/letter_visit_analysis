@@ -146,7 +146,7 @@ export async function startWebGis({ setStatus }) {
     elements.analyzeButton.disabled = true;
     elements.analyzeButton.textContent = "识别中...";
     renderAnalysisResult(elements, "正在调用本地 Python 脚本识别...", false);
-    setStatus("正在调用 classify_noise_petitions.py 和 recognize_addresses.py...");
+    setStatus("正在调用 python/classify_noise_petitions.py 和 python/recognize_addresses.py...");
 
     try {
       const result = await analyzeComplaintText(text, region);
