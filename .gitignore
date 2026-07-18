@@ -7,7 +7,8 @@ __pycache__/
 .vscode/
 .agents/
 
-# Raw or generated sensitive data
+# Local secrets and generated sensitive data
+webgis/config.local.js
 data/*.xlsx
 webgis/data/complaints.geojson
 webgis/data/complaints.js

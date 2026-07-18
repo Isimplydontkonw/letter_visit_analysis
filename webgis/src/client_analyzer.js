@@ -1,5 +1,5 @@
 const KEYWORD_URL = "./data/noise_keywords.tsv";
-const BAIDU_AK = "ZqdaxnNveaYhhyiHR4TqcZY3b3ZxpecO";
+const BAIDU_AK = window.WEBGIS_CONFIG?.BAIDU_MAP_AK || "";
 const X_PI = Math.PI * 3000.0 / 180.0;
 
 let keywordRulesPromise = null;
@@ -143,6 +143,10 @@ function buildQueryAddress(region, address) {
 }
 
 function geocodeByBaidu(address) {
+  if (!BAIDU_AK) {
+    return Promise.resolve({ ok: false, status: "NO_AK", message: "请在 webgis/config.local.js 中配置百度地图 AK" });
+  }
+
   return new Promise((resolve) => {
     const callbackName = `baiduGeocode_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
     const script = document.createElement("script");
