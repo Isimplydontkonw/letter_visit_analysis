@@ -4,6 +4,11 @@ const AXIS = 6378245.0;
 const OFFSET = 0.00669342162296594323;
 
 export async function loadComplaintFeatures() {
+  const databaseGeojson = await loadDatabaseGeojson();
+  if (databaseGeojson && databaseGeojson.features && databaseGeojson.features.length) {
+    return readGcj02Features(databaseGeojson);
+  }
+
   let geojson = window.COMPLAINTS_GEOJSON || null;
 
   if (!geojson && window.location.protocol !== "file:") {
@@ -31,6 +36,29 @@ export function getFeatureType(feature) {
 
 export function getFeatureId(feature) {
   return feature.get("事项编号") || "";
+}
+
+async function loadDatabaseGeojson() {
+  if (window.location.protocol === "file:") {
+    return null;
+  }
+  try {
+    const response = await fetch("/api/complaints", { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const payload = await response.json();
+    return payload.ok ? payload.geojson : null;
+  } catch {
+    return null;
+  }
+}
+
+export function readGcj02Features(geojson) {
+  return new ol.format.GeoJSON().readFeatures(geojson, {
+    dataProjection: "EPSG:4326",
+    featureProjection: "EPSG:3857",
+  });
 }
 
 function convertGeojsonWgs84ToGcj02(geojson) {

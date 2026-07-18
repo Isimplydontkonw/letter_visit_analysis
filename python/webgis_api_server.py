@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -30,11 +31,226 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 WEBGIS_DIR = PROJECT_ROOT / "webgis"
 KEYWORD_PATH = PROJECT_ROOT / "data" / "噪声关键词.xlsx"
 RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "batch"
+DB_PATH = PROJECT_ROOT / ".runtime" / "webgis.db"
 UPLOADS: dict[str, dict[str, object]] = {}
 DEFAULT_GEOCODE_SLEEP_SECONDS = 0.5
 GEOCODE_LOCK = threading.Lock()
+DB_LOCK = threading.Lock()
 
 
+
+
+STANDARD_COLUMNS = [
+    "事项编号", "诉求内容", "问题属地", "登记时间", "噪声分类", "噪声分类命中关键词",
+    "识别地址", "地址识别状态", "百度地理编码地址", "百度地理编码状态", "百度地理编码消息",
+    "WGS84经度", "WGS84纬度", "GCJ02经度", "GCJ02纬度", "坐标转换状态",
+]
+
+
+def ensure_database() -> None:
+    """创建本地 SQLite 数据库和投诉点位表。"""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS complaints (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL,
+                    source_filename TEXT,
+                    created_at TEXT NOT NULL,
+                    matter_id TEXT,
+                    content TEXT,
+                    region TEXT,
+                    register_time TEXT,
+                    noise_type TEXT,
+                    hit_keywords TEXT,
+                    address TEXT,
+                    address_status TEXT,
+                    geocode_address TEXT,
+                    geocode_status TEXT,
+                    geocode_message TEXT,
+                    wgs84_lng REAL,
+                    wgs84_lat REAL,
+                    gcj02_lng REAL,
+                    gcj02_lat REAL,
+                    convert_status TEXT,
+                    raw_json TEXT
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_complaints_batch_id ON complaints(batch_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_complaints_noise_type ON complaints(noise_type)")
+
+
+def safe_value(value: object) -> object:
+    """把 pandas/numpy 空值和时间值转为可 JSON/SQLite 存储的普通值。"""
+    if pd.isna(value):
+        return ""
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    if hasattr(value, "item"):
+        try:
+            return value.item()
+        except Exception:
+            pass
+    return value
+
+
+def safe_float(value: object) -> float | None:
+    """把有效数字转为 float，无效值返回 None。"""
+    if not is_valid_number(value):
+        return None
+    return float(value)
+
+
+def row_properties(row: pd.Series) -> dict[str, object]:
+    """生成前端点位属性，字段名保持与现有弹窗和筛选逻辑一致。"""
+    return {
+        "事项编号": safe_value(row.get("事项编号")),
+        "诉求内容": safe_value(row.get("诉求内容")),
+        "问题属地": safe_value(row.get("问题属地")),
+        "登记时间": safe_value(row.get("登记时间")),
+        "噪声分类": safe_value(row.get("噪声分类") or "未匹配"),
+        "噪声分类命中关键词": safe_value(row.get("噪声分类命中关键词")),
+        "识别地址": safe_value(row.get("识别地址")),
+        "地址识别状态": safe_value(row.get("地址识别状态")),
+        "百度地理编码地址": safe_value(row.get("百度地理编码地址")),
+        "百度地理编码状态": safe_value(row.get("百度地理编码状态")),
+        "百度地理编码消息": safe_value(row.get("百度地理编码消息")),
+        "WGS84经度": safe_value(row.get("WGS84经度")),
+        "WGS84纬度": safe_value(row.get("WGS84纬度")),
+        "GCJ02经度": safe_value(row.get("GCJ02经度")),
+        "GCJ02纬度": safe_value(row.get("GCJ02纬度")),
+        "坐标转换状态": safe_value(row.get("坐标转换状态")),
+        "显示坐标系": "GCJ-02",
+        "显示经度": safe_value(row.get("GCJ02经度")),
+        "显示纬度": safe_value(row.get("GCJ02纬度")),
+    }
+
+
+def dataframe_to_features(df: pd.DataFrame) -> list[dict[str, object]]:
+    """把有有效 GCJ-02 坐标的记录转为前端可直接叠加的 GeoJSON features。"""
+    features: list[dict[str, object]] = []
+    for _, row in df.iterrows():
+        lng = safe_float(row.get("GCJ02经度"))
+        lat = safe_float(row.get("GCJ02纬度"))
+        if lng is None or lat is None:
+            continue
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lng, lat]},
+                "properties": row_properties(row),
+            }
+        )
+    return features
+
+
+def row_raw_json(row: pd.Series) -> str:
+    """保留上传表中未标准化字段，方便后续追溯。"""
+    raw = {
+        str(column): safe_value(value)
+        for column, value in row.items()
+        if str(column) not in STANDARD_COLUMNS
+    }
+    return json.dumps(raw, ensure_ascii=False)
+
+
+def insert_complaints(df: pd.DataFrame, batch_id: str, source_filename: str) -> int:
+    """将处理结果逐行写入 SQLite，返回入库行数。"""
+    ensure_database()
+    created_at = pd.Timestamp.now().isoformat()
+    rows = []
+    for _, row in df.iterrows():
+        rows.append(
+            (
+                batch_id, source_filename, created_at,
+                str(safe_value(row.get("事项编号"))),
+                str(safe_value(row.get("诉求内容"))),
+                str(safe_value(row.get("问题属地"))),
+                str(safe_value(row.get("登记时间"))),
+                str(safe_value(row.get("噪声分类") or "未匹配")),
+                str(safe_value(row.get("噪声分类命中关键词"))),
+                str(safe_value(row.get("识别地址"))),
+                str(safe_value(row.get("地址识别状态"))),
+                str(safe_value(row.get("百度地理编码地址"))),
+                str(safe_value(row.get("百度地理编码状态"))),
+                str(safe_value(row.get("百度地理编码消息"))),
+                safe_float(row.get("WGS84经度")),
+                safe_float(row.get("WGS84纬度")),
+                safe_float(row.get("GCJ02经度")),
+                safe_float(row.get("GCJ02纬度")),
+                str(safe_value(row.get("坐标转换状态"))),
+                row_raw_json(row),
+            )
+        )
+
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.executemany(
+                """
+                INSERT INTO complaints (
+                    batch_id, source_filename, created_at, matter_id, content, region, register_time,
+                    noise_type, hit_keywords, address, address_status, geocode_address,
+                    geocode_status, geocode_message, wgs84_lng, wgs84_lat, gcj02_lng,
+                    gcj02_lat, convert_status, raw_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                rows,
+            )
+    return len(rows)
+
+
+def database_features() -> list[dict[str, object]]:
+    """从 SQLite 读取全部有效 GCJ-02 点位。"""
+    if not DB_PATH.exists():
+        return []
+    ensure_database()
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            records = conn.execute(
+                """
+                SELECT * FROM complaints
+                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
+                ORDER BY id
+                """
+            ).fetchall()
+
+    features = []
+    for record in records:
+        properties = {
+            "事项编号": record["matter_id"],
+            "诉求内容": record["content"],
+            "问题属地": record["region"],
+            "登记时间": record["register_time"],
+            "噪声分类": record["noise_type"] or "未匹配",
+            "噪声分类命中关键词": record["hit_keywords"],
+            "识别地址": record["address"],
+            "地址识别状态": record["address_status"],
+            "百度地理编码地址": record["geocode_address"],
+            "百度地理编码状态": record["geocode_status"],
+            "百度地理编码消息": record["geocode_message"],
+            "WGS84经度": record["wgs84_lng"],
+            "WGS84纬度": record["wgs84_lat"],
+            "GCJ02经度": record["gcj02_lng"],
+            "GCJ02纬度": record["gcj02_lat"],
+            "坐标转换状态": record["convert_status"],
+            "显示坐标系": "GCJ-02",
+            "显示经度": record["gcj02_lng"],
+            "显示纬度": record["gcj02_lat"],
+            "batch_id": record["batch_id"],
+            "source_filename": record["source_filename"],
+        }
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [record["gcj02_lng"], record["gcj02_lat"]]},
+                "properties": properties,
+            }
+        )
+    return features
 
 def parse_multipart_file(headers, body: bytes) -> tuple[str, bytes]:
     """解析浏览器上传的单文件 multipart/form-data 请求。"""
@@ -215,6 +431,9 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/health":
             self.send_json({"ok": True})
             return
+        if parsed.path == "/api/complaints":
+            self.send_json({"ok": True, "geojson": {"type": "FeatureCollection", "features": database_features()}})
+            return
         if parsed.path == "/api/download":
             self.handle_download(parsed.query)
             return
@@ -323,9 +542,14 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         classified = classify_dataframe(df, content_column)
         enriched = recognize_dataframe(classified, content_column, region_column)
 
+        batch_id = uuid.uuid4().hex
         output_id = uuid.uuid4().hex
         output_path = RUNTIME_DIR / f"{output_id}_噪声信访批处理结果.xlsx"
         write_table(enriched, output_path)
+        source_filename = str(UPLOADS[upload_id].get("filename") or input_path.name)
+        inserted_count = insert_complaints(enriched, batch_id, source_filename)
+        features = dataframe_to_features(enriched)
+        skipped_count = int(len(enriched) - len(features))
         UPLOADS[output_id] = {"path": output_path, "filename": output_path.name}
 
         self.send_json(
@@ -334,6 +558,11 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
                 "downloadUrl": f"/api/download?id={output_id}",
                 "filename": output_path.name,
                 "summary": summarize_result(enriched),
+                "batchId": batch_id,
+                "insertedCount": inserted_count,
+                "validFeatureCount": len(features),
+                "skippedFeatureCount": skipped_count,
+                "features": features,
             }
         )
 

@@ -182,6 +182,7 @@ export function renderBatchResult(elements, result, isError = false) {
     <div>分类统计：${renderSummaryItems(summary.classification)}</div>
     <div>地址识别：${renderSummaryItems(summary.address)}</div>
     <div>地理编码：${renderSummaryItems(summary.geocode)}</div>
+    <div>入库：${escapeHtml(result.insertedCount ?? "-")} 条；上图：${escapeHtml(result.validFeatureCount ?? 0)} 个；跳过：${escapeHtml(result.skippedFeatureCount ?? 0)} 条</div>
     <a class="download-link" href="${escapeHtml(result.downloadUrl)}" download>${escapeHtml(result.filename || "下载处理结果")}</a>
   `;
 }

@@ -1,7 +1,7 @@
 import { INITIAL_CENTER, INITIAL_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./config.js";
 import { analyzeComplaintText } from "./client_analyzer.js";
 import { previewBatchFile, processBatchFile } from "./batch_api.js";
-import { getFeatureType, loadComplaintFeatures } from "./data.js";
+import { getFeatureType, loadComplaintFeatures, readGcj02Features } from "./data.js";
 import { createComplaintLayer, createGaodeBasemapLayers, setGaodeBasemapMode } from "./layers.js";
 import { createComplaintStyle } from "./styles.js";
 import {
@@ -138,6 +138,28 @@ export async function startWebGis({ setStatus }) {
     setStatus("已将识别结果高亮显示在地图中。");
   }
 
+
+  function addBatchFeatures(features) {
+    const incomingFeatures = readGcj02Features({ type: "FeatureCollection", features: features || [] });
+    if (!incomingFeatures.length) {
+      return 0;
+    }
+
+    allFeatures = [...incomingFeatures, ...allFeatures];
+    const incomingTypes = createTypeOrder(incomingFeatures);
+    typeOrder = createTypeOrder(allFeatures);
+    incomingTypes.forEach((type) => activeTypes.add(type));
+    renderFilters(elements, allFeatures, activeTypes, typeOrder, () => refreshVisibleFeatures());
+    refreshVisibleFeatures();
+
+    const batchSource = new ol.source.Vector({ features: incomingFeatures });
+    map.getView().fit(batchSource.getExtent(), {
+      padding: [80, 80, 80, 80],
+      duration: 350,
+      maxZoom: 15,
+    });
+    return incomingFeatures.length;
+  }
   async function analyzeInputText(event) {
     event.preventDefault();
     const text = elements.complaintText.value.trim();
@@ -216,7 +238,8 @@ export async function startWebGis({ setStatus }) {
     try {
       const result = await processBatchFile({ uploadId: currentBatchUploadId, contentColumn, regionColumn });
       renderBatchResult(elements, result);
-      setStatus(`批量处理完成：${result.filename}`);
+      const addedCount = addBatchFeatures(result.features || []);
+      setStatus(`批量处理完成：${result.filename}；已入库 ${result.insertedCount ?? 0} 条，新增上图 ${addedCount} 个点位。`);
     } catch (error) {
       renderBatchResult(elements, error.message || "批量处理失败", true);
       setStatus(`批量处理失败：${error.message}`, true);
