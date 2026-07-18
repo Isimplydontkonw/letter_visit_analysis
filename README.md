@@ -47,6 +47,8 @@ python python/webgis_api_server.py
 
 批处理临时文件保存在 `.runtime/`，该目录已被 Git 忽略。
 
+百度地理编码请求会串行执行，默认每次 API 请求后等待 0.5 秒，避免触发并发量上限。
+
 ## 敏感数据
 
 以下文件不会提交到 Git：

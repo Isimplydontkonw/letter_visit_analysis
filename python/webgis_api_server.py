@@ -7,6 +7,8 @@ import os
 import re
 import subprocess
 import sys
+import threading
+import time
 import uuid
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -29,6 +31,8 @@ WEBGIS_DIR = PROJECT_ROOT / "webgis"
 KEYWORD_PATH = PROJECT_ROOT / "data" / "噪声关键词.xlsx"
 RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "batch"
 UPLOADS: dict[str, dict[str, object]] = {}
+DEFAULT_GEOCODE_SLEEP_SECONDS = 0.5
+GEOCODE_LOCK = threading.Lock()
 
 
 
@@ -95,6 +99,15 @@ def find_baidu_ak() -> str | None:
     return match.group(1).strip() if match else None
 
 
+
+def throttled_baidu_geocode(address: str, ak: str, sleep_seconds: float) -> dict[str, object]:
+    """串行调用百度地理编码，避免并发请求触发配额限制。"""
+    with GEOCODE_LOCK:
+        result = baidu_geocode(address, ak)
+        if sleep_seconds > 0:
+            time.sleep(sleep_seconds)
+        return result
+
 def classify_dataframe(df: pd.DataFrame, content_column: str) -> pd.DataFrame:
     """复用 classify_noise_petitions.py 的规则函数，对指定文本列批量分类。"""
     if content_column not in df.columns:
@@ -110,7 +123,7 @@ def classify_dataframe(df: pd.DataFrame, content_column: str) -> pd.DataFrame:
     return result_df
 
 
-def recognize_dataframe(df: pd.DataFrame, content_column: str, region_column: str, sleep_seconds: float = 0.0) -> pd.DataFrame:
+def recognize_dataframe(df: pd.DataFrame, content_column: str, region_column: str, sleep_seconds: float = DEFAULT_GEOCODE_SLEEP_SECONDS) -> pd.DataFrame:
     """复用 recognize_addresses.py 的地址抽取、百度地理编码与坐标转换函数。"""
     if content_column not in df.columns:
         raise ValueError(f"未找到地址识别文本列：{content_column}")
@@ -133,15 +146,11 @@ def recognize_dataframe(df: pd.DataFrame, content_column: str, region_column: st
         region = row[region_column] if region_column and region_column in result_df.columns else ""
         query_address = build_geocode_address(row["识别地址"], region, True)
         try:
-            geocode_result = baidu_geocode(query_address, ak)
+            geocode_result = throttled_baidu_geocode(query_address, ak, sleep_seconds)
         except Exception as exc:
             geocode_result = {"status": "ERROR", "message": str(exc)}
         geocode_result["query_address"] = query_address
         geocode_rows.append(geocode_result)
-        if sleep_seconds > 0:
-            import time
-
-            time.sleep(sleep_seconds)
 
     geocode_df = pd.DataFrame(geocode_rows)
     result_df["百度地理编码地址"] = geocode_df.get("query_address", "")
