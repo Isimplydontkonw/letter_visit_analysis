@@ -18,8 +18,12 @@ rem Stop old launchers if they are still running.
 taskkill /IM "WebGISLauncherDebug.exe" /F >nul 2>nul
 
 set "PYTHON_CMD="
-where python >nul 2>nul
-if not errorlevel 1 set "PYTHON_CMD=python"
+if exist "runtime\python\python.exe" set "PYTHON_CMD=runtime\python\python.exe"
+
+if not defined PYTHON_CMD (
+  where python >nul 2>nul
+  if not errorlevel 1 set "PYTHON_CMD=python"
+)
 
 if not defined PYTHON_CMD (
   where py >nul 2>nul
@@ -28,7 +32,7 @@ if not defined PYTHON_CMD (
 
 if not defined PYTHON_CMD (
   echo Python was not found.
-  echo Please install Python 3.10 or newer and enable Add Python to PATH.
+  echo Please run tools\setup_portable_python.ps1 or install Python 3.10 or newer.
   echo.
   pause
   exit /b 1
@@ -43,7 +47,7 @@ if errorlevel 1 (
     %PYTHON_CMD% -m pip install pandas openpyxl xlrd
     %PYTHON_CMD% -c "import pandas, openpyxl" >nul 2>nul
     if errorlevel 1 (
-      echo Dependency installation failed. Please check Python, pip, or network access.
+      echo Dependency installation failed. Please run tools\setup_portable_python.ps1 or check network access.
       echo.
       pause
       exit /b 1
