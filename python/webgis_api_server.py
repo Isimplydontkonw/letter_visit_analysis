@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import mimetypes
 import os
@@ -17,6 +18,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
 import pandas as pd
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
 
 from classify_noise_petitions import load_keyword_rules, classify_text
 from prepare_webgis_data import bd09_to_wgs84_and_gcj02, is_valid_number
@@ -81,6 +86,27 @@ def ensure_database() -> None:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_complaints_batch_id ON complaints(batch_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_complaints_noise_type ON complaints(noise_type)")
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS complaint_locations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    location_key TEXT NOT NULL UNIQUE,
+                    address TEXT,
+                    region TEXT,
+                    wgs84_lng REAL,
+                    wgs84_lat REAL,
+                    gcj02_lng REAL,
+                    gcj02_lat REAL,
+                    complaint_count INTEGER NOT NULL DEFAULT 0,
+                    first_register_time TEXT,
+                    last_register_time TEXT,
+                    noise_types TEXT,
+                    complaint_ids TEXT,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_locations_key ON complaint_locations(location_key)")
 
 
 def safe_value(value: object) -> object:
@@ -102,6 +128,145 @@ def safe_float(value: object) -> float | None:
     if not is_valid_number(value):
         return None
     return float(value)
+
+
+def normalize_location_text(value: object) -> str:
+    text = str(value or "").strip()
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[，,。；;：:\-_\s]+", "", text)
+    return text.lower()
+
+
+def complaint_location_key(record: sqlite3.Row | dict[str, object]) -> str:
+    address = normalize_location_text(record["address"] or record["geocode_address"] or record["region"])
+    if address:
+        return "addr:" + hashlib.sha1(address.encode("utf-8")).hexdigest()
+
+    lng = record["gcj02_lng"]
+    lat = record["gcj02_lat"]
+    if lng is not None and lat is not None:
+        return f"coord:{float(lng):.6f},{float(lat):.6f}"
+    return "unknown"
+
+
+def complaint_summary(record: sqlite3.Row) -> dict[str, object]:
+    return {
+        "id": record["id"],
+        "事项编号": record["matter_id"],
+        "诉求内容": record["content"],
+        "问题属地": record["region"],
+        "登记时间": record["register_time"],
+        "新建时间": record["created_at"],
+        "噪声分类": record["noise_type"] or "未匹配",
+        "命中关键词": record["hit_keywords"],
+        "识别地址": record["address"],
+        "地理编码地址": record["geocode_address"],
+        "来源文件": record["source_filename"],
+    }
+
+
+def most_common_noise_type(records: list[sqlite3.Row]) -> str:
+    counts: dict[str, int] = {}
+    for record in records:
+        noise_type = record["noise_type"] or "未匹配"
+        counts[noise_type] = counts.get(noise_type, 0) + 1
+    return max(counts.items(), key=lambda item: (item[1], item[0]))[0] if counts else "未匹配"
+
+
+def location_complaints(location_key: str) -> dict[str, object] | None:
+    if not DB_PATH.exists():
+        return None
+    rebuild_complaint_locations()
+    ensure_database()
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            location = conn.execute(
+                "SELECT * FROM complaint_locations WHERE location_key = ?",
+                (location_key,),
+            ).fetchone()
+            if location is None:
+                return None
+            records = conn.execute(
+                """
+                SELECT * FROM complaints
+                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
+                ORDER BY register_time, created_at, id
+                """
+            ).fetchall()
+
+    complaints = [
+        complaint_summary(record)
+        for record in records
+        if complaint_location_key(record) == location_key
+    ]
+    return {
+        "location": {
+            "地点ID": location["id"],
+            "地点键": location["location_key"],
+            "投诉地点": location["address"] or location["region"] or "-",
+            "问题属地": location["region"],
+            "投诉数量": location["complaint_count"],
+            "主要噪声分类": most_common_noise_type([record for record in records if complaint_location_key(record) == location_key]),
+            "噪声分类列表": json.loads(location["noise_types"] or "[]"),
+            "最早登记时间": location["first_register_time"],
+            "最新登记时间": location["last_register_time"],
+            "GCJ02经度": location["gcj02_lng"],
+            "GCJ02纬度": location["gcj02_lat"],
+        },
+        "complaints": complaints,
+    }
+
+
+def rebuild_complaint_locations() -> None:
+    if not DB_PATH.exists():
+        return
+    ensure_database()
+    updated_at = pd.Timestamp.now().isoformat()
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            records = conn.execute(
+                """
+                SELECT * FROM complaints
+                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
+                ORDER BY id
+                """
+            ).fetchall()
+            grouped: dict[str, list[sqlite3.Row]] = {}
+            for record in records:
+                key = complaint_location_key(record)
+                grouped.setdefault(key, []).append(record)
+
+            conn.execute("DELETE FROM complaint_locations")
+            for key, items in grouped.items():
+                first = items[0]
+                register_times = [str(item["register_time"]) for item in items if item["register_time"]]
+                noise_types = sorted({str(item["noise_type"] or "未匹配") for item in items})
+                conn.execute(
+                    """
+                    INSERT INTO complaint_locations (
+                        location_key, address, region, wgs84_lng, wgs84_lat, gcj02_lng, gcj02_lat,
+                        complaint_count, first_register_time, last_register_time, noise_types,
+                        complaint_ids, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        key,
+                        first["address"] or first["geocode_address"],
+                        first["region"],
+                        first["wgs84_lng"],
+                        first["wgs84_lat"],
+                        first["gcj02_lng"],
+                        first["gcj02_lat"],
+                        len(items),
+                        min(register_times) if register_times else "",
+                        max(register_times) if register_times else "",
+                        json.dumps(noise_types, ensure_ascii=False),
+                        json.dumps([item["id"] for item in items], ensure_ascii=False),
+                        updated_at,
+                    ),
+                )
 
 
 def row_properties(row: pd.Series) -> dict[str, object]:
@@ -199,58 +364,117 @@ def insert_complaints(df: pd.DataFrame, batch_id: str, source_filename: str) -> 
                 """,
                 rows,
             )
+    rebuild_complaint_locations()
     return len(rows)
 
 
 def database_features() -> list[dict[str, object]]:
-    """从 SQLite 读取全部有效 GCJ-02 点位。"""
+    """从 SQLite 读取按投诉地点聚合后的有效 GCJ-02 点位。"""
+    if not DB_PATH.exists():
+        return []
+    rebuild_complaint_locations()
+    ensure_database()
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            conn.row_factory = sqlite3.Row
+            locations = conn.execute(
+                """
+                SELECT * FROM complaint_locations
+                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
+                ORDER BY id
+                """
+            ).fetchall()
+            records = conn.execute(
+                """
+                SELECT * FROM complaints
+                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
+                ORDER BY register_time, created_at, id
+                """
+            ).fetchall()
+
+    grouped: dict[str, list[sqlite3.Row]] = {}
+    for record in records:
+        grouped.setdefault(complaint_location_key(record), []).append(record)
+
+    features = []
+    for location in locations:
+        complaints = grouped.get(location["location_key"], [])
+        noise_type = most_common_noise_type(complaints)
+        properties = {
+            "地点ID": location["id"],
+            "地点键": location["location_key"],
+            "投诉地点": location["address"] or location["region"] or "-",
+            "问题属地": location["region"],
+            "投诉数量": location["complaint_count"],
+            "噪声分类": noise_type,
+            "主要噪声分类": noise_type,
+            "噪声分类列表": json.loads(location["noise_types"] or "[]"),
+            "最早登记时间": location["first_register_time"],
+            "最新登记时间": location["last_register_time"],
+            "WGS84经度": location["wgs84_lng"],
+            "WGS84纬度": location["wgs84_lat"],
+            "GCJ02经度": location["gcj02_lng"],
+            "GCJ02纬度": location["gcj02_lat"],
+            "显示坐标系": "GCJ-02",
+            "显示经度": location["gcj02_lng"],
+            "显示纬度": location["gcj02_lat"],
+        }
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [location["gcj02_lng"], location["gcj02_lat"]]},
+                "properties": properties,
+            }
+        )
+    return features
+
+
+def list_batches() -> list[dict[str, object]]:
+    """返回按导入时间倒序排列的批次摘要。"""
     if not DB_PATH.exists():
         return []
     ensure_database()
     with DB_LOCK:
         with sqlite3.connect(DB_PATH) as conn:
             conn.row_factory = sqlite3.Row
-            records = conn.execute(
+            rows = conn.execute(
                 """
-                SELECT * FROM complaints
-                WHERE gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL
-                ORDER BY id
+                SELECT
+                    batch_id,
+                    COALESCE(source_filename, '') AS source_filename,
+                    MIN(created_at) AS created_at,
+                    COUNT(*) AS row_count,
+                    SUM(CASE WHEN gcj02_lng IS NOT NULL AND gcj02_lat IS NOT NULL THEN 1 ELSE 0 END) AS feature_count
+                FROM complaints
+                GROUP BY batch_id
+                ORDER BY created_at DESC, batch_id DESC
                 """
             ).fetchall()
-
-    features = []
-    for record in records:
-        properties = {
-            "事项编号": record["matter_id"],
-            "诉求内容": record["content"],
-            "问题属地": record["region"],
-            "登记时间": record["register_time"],
-            "噪声分类": record["noise_type"] or "未匹配",
-            "噪声分类命中关键词": record["hit_keywords"],
-            "识别地址": record["address"],
-            "地址识别状态": record["address_status"],
-            "百度地理编码地址": record["geocode_address"],
-            "百度地理编码状态": record["geocode_status"],
-            "百度地理编码消息": record["geocode_message"],
-            "WGS84经度": record["wgs84_lng"],
-            "WGS84纬度": record["wgs84_lat"],
-            "GCJ02经度": record["gcj02_lng"],
-            "GCJ02纬度": record["gcj02_lat"],
-            "坐标转换状态": record["convert_status"],
-            "显示坐标系": "GCJ-02",
-            "显示经度": record["gcj02_lng"],
-            "显示纬度": record["gcj02_lat"],
-            "batch_id": record["batch_id"],
-            "source_filename": record["source_filename"],
+    return [
+        {
+            "batchId": row["batch_id"],
+            "sourceFilename": row["source_filename"],
+            "createdAt": row["created_at"],
+            "rowCount": int(row["row_count"] or 0),
+            "featureCount": int(row["feature_count"] or 0),
         }
-        features.append(
-            {
-                "type": "Feature",
-                "geometry": {"type": "Point", "coordinates": [record["gcj02_lng"], record["gcj02_lat"]]},
-                "properties": properties,
-            }
-        )
-    return features
+        for row in rows
+    ]
+
+
+def delete_batch(batch_id: str) -> int:
+    """删除一个导入批次，并重建地点聚合表。"""
+    if not batch_id:
+        raise ValueError("缺少批次 ID")
+    if not DB_PATH.exists():
+        return 0
+    ensure_database()
+    with DB_LOCK:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.execute("DELETE FROM complaints WHERE batch_id = ?", (batch_id,))
+            deleted_count = int(cursor.rowcount or 0)
+    rebuild_complaint_locations()
+    return deleted_count
 
 def parse_multipart_file(headers, body: bytes) -> tuple[str, bytes]:
     """解析浏览器上传的单文件 multipart/form-data 请求。"""
@@ -434,10 +658,37 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/complaints":
             self.send_json({"ok": True, "geojson": {"type": "FeatureCollection", "features": database_features()}})
             return
+        if parsed.path == "/api/batches":
+            self.send_json({"ok": True, "batches": list_batches()})
+            return
+        if parsed.path == "/api/location-complaints":
+            query = parse_qs(parsed.query)
+            location_key = query.get("locationKey", [""])[0]
+            if not location_key:
+                self.send_json({"ok": False, "error": "缺少 locationKey"}, status=400)
+                return
+            payload = location_complaints(location_key)
+            if payload is None:
+                self.send_json({"ok": False, "error": "未找到投诉地点"}, status=404)
+                return
+            self.send_json({"ok": True, **payload})
+            return
         if parsed.path == "/api/download":
             self.handle_download(parsed.query)
             return
         super().do_GET()
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path.startswith("/api/batches/"):
+                batch_id = unquote(parsed.path.rsplit("/", 1)[-1])
+                deleted_count = delete_batch(batch_id)
+                self.send_json({"ok": True, "batchId": batch_id, "deletedCount": deleted_count})
+                return
+            self.send_json({"ok": False, "error": "接口不存在"}, status=404)
+        except Exception as exc:
+            self.send_json({"ok": False, "error": str(exc)}, status=500)
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
@@ -469,7 +720,8 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+        self.send_header("Cache-Control", "no-store, max-age=0")
         super().end_headers()
 
     def guess_type(self, path: str) -> str:

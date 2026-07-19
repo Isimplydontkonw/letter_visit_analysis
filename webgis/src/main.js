@@ -1,19 +1,20 @@
-import { INITIAL_CENTER, INITIAL_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./config.js";
-import { analyzeComplaintText } from "./client_analyzer.js";
-import { previewBatchFile, processBatchFile } from "./batch_api.js";
-import { getFeatureType, loadComplaintFeatures, readGcj02Features } from "./data.js";
-import { createComplaintLayer, createGaodeBasemapLayers, setGaodeBasemapMode } from "./layers.js";
-import { createComplaintStyle } from "./styles.js";
+import { INITIAL_CENTER, INITIAL_ZOOM, MAX_ZOOM, MIN_ZOOM } from "./config.js?v=20260719-refactor3";
+import { analyzeComplaintText } from "./client_analyzer.js?v=20260719-refactor3";
+import { previewBatchFile, processBatchFile } from "./batch_api.js?v=20260719-refactor3";
+import { deleteImportBatch, getFeatureType, loadComplaintFeatures, loadImportBatches, loadLocationComplaints } from "./data.js?v=20260719-refactor3";
+import { createComplaintLayer, createGaodeBasemapLayers, setGaodeBasemapMode } from "./layers.js?v=20260719-refactor3";
+import { createComplaintStyle } from "./styles.js?v=20260719-refactor3";
 import {
   createTypeOrder,
   getElements,
   renderAnalysisResult,
   renderBatchColumns,
+  renderBatchList,
   renderBatchResult,
   renderDetails,
   renderFilters,
   renderStats,
-} from "./ui.js";
+} from "./ui.js?v=20260719-refactor3";
 
 export async function startWebGis({ setStatus }) {
   const elements = getElements();
@@ -97,11 +98,87 @@ export async function startWebGis({ setStatus }) {
     refreshVisibleFeatures({ shouldFit: true });
   }
 
-  function selectFeature(feature) {
+  async function reloadComplaintData({ shouldFit = false } = {}) {
+    allFeatures = await loadComplaintFeatures();
+    typeOrder = createTypeOrder(allFeatures);
+    activeTypes = new Set(typeOrder);
+    selectedFeature = null;
+    renderFilters(elements, allFeatures, activeTypes, typeOrder, () => refreshVisibleFeatures());
+    renderDetails(elements, null);
+    popupOverlay.setPosition(undefined);
+    refreshVisibleFeatures({ shouldFit });
+  }
+
+  async function refreshBatchList() {
+    if (!elements.batchList || !elements.undoLastBatchButton) {
+      return [];
+    }
+    try {
+      const batches = await loadImportBatches();
+      renderBatchList(elements, batches, deleteBatchById);
+      elements.undoLastBatchButton.disabled = !batches.length;
+      return batches;
+    } catch (error) {
+      elements.batchList.innerHTML = `<div class="batch-empty">${error.message || "批次列表加载失败"}</div>`;
+      elements.undoLastBatchButton.disabled = true;
+      return [];
+    }
+  }
+
+  async function deleteBatchById(batchId) {
+    if (!batchId) {
+      return;
+    }
+    if (!window.confirm("确定撤销这个导入批次吗？该批次写入数据库的记录会从地图中移除。")) {
+      return;
+    }
+    setStatus("正在撤销导入批次...");
+    try {
+      const result = await deleteImportBatch(batchId);
+      await reloadComplaintData({ shouldFit: true });
+      await refreshBatchList();
+      setStatus(`已撤销导入批次，删除 ${result.deletedCount ?? 0} 条记录。`);
+    } catch (error) {
+      setStatus(`撤销失败：${error.message}`, true);
+    }
+  }
+
+  async function deleteLatestBatch() {
+    const batches = await refreshBatchList();
+    if (!batches.length) {
+      setStatus("当前没有可撤销的导入批次。", true);
+      return;
+    }
+    await deleteBatchById(batches[0].batchId);
+  }
+
+  async function selectFeature(feature) {
     selectedFeature = feature || null;
-    renderDetails(elements, selectedFeature);
+    if (!selectedFeature) {
+      renderDetails(elements, null);
+      popupOverlay.setPosition(undefined);
+      complaintLayer.changed();
+      return;
+    }
+
+    const locationKey = selectedFeature.get("地点键");
+    renderDetails(elements, selectedFeature, { loading: Boolean(locationKey) });
     popupOverlay.setPosition(selectedFeature ? selectedFeature.getGeometry().getCoordinates() : undefined);
     complaintLayer.changed();
+    if (!locationKey) {
+      return;
+    }
+
+    try {
+      const detailPayload = await loadLocationComplaints(locationKey);
+      if (selectedFeature === feature) {
+        renderDetails(elements, selectedFeature, detailPayload);
+      }
+    } catch (error) {
+      if (selectedFeature === feature) {
+        renderDetails(elements, selectedFeature, { error: error.message || "投诉明细加载失败" });
+      }
+    }
   }
 
   function addHighlightedResult(result) {
@@ -139,27 +216,6 @@ export async function startWebGis({ setStatus }) {
   }
 
 
-  function addBatchFeatures(features) {
-    const incomingFeatures = readGcj02Features({ type: "FeatureCollection", features: features || [] });
-    if (!incomingFeatures.length) {
-      return 0;
-    }
-
-    allFeatures = [...incomingFeatures, ...allFeatures];
-    const incomingTypes = createTypeOrder(incomingFeatures);
-    typeOrder = createTypeOrder(allFeatures);
-    incomingTypes.forEach((type) => activeTypes.add(type));
-    renderFilters(elements, allFeatures, activeTypes, typeOrder, () => refreshVisibleFeatures());
-    refreshVisibleFeatures();
-
-    const batchSource = new ol.source.Vector({ features: incomingFeatures });
-    map.getView().fit(batchSource.getExtent(), {
-      padding: [80, 80, 80, 80],
-      duration: 350,
-      maxZoom: 15,
-    });
-    return incomingFeatures.length;
-  }
   async function analyzeInputText(event) {
     event.preventDefault();
     const text = elements.complaintText.value.trim();
@@ -238,8 +294,9 @@ export async function startWebGis({ setStatus }) {
     try {
       const result = await processBatchFile({ uploadId: currentBatchUploadId, contentColumn, regionColumn });
       renderBatchResult(elements, result);
-      const addedCount = addBatchFeatures(result.features || []);
-      setStatus(`批量处理完成：${result.filename}；已入库 ${result.insertedCount ?? 0} 条，新增上图 ${addedCount} 个点位。`);
+      await reloadComplaintData({ shouldFit: true });
+      await refreshBatchList();
+      setStatus(`批量处理完成：${result.filename}；已入库 ${result.insertedCount ?? 0} 条，当前上图 ${allFeatures.length} 个投诉地点。`);
     } catch (error) {
       renderBatchResult(elements, error.message || "批量处理失败", true);
       setStatus(`批量处理失败：${error.message}`, true);
@@ -258,26 +315,45 @@ export async function startWebGis({ setStatus }) {
     map.getTargetElement().style.cursor = hit ? "pointer" : "";
   });
 
-  elements.zoomInButton.addEventListener("click", () => {
+  function on(element, eventName, handler) {
+    if (element) {
+      element.addEventListener(eventName, handler);
+    }
+  }
+
+  on(elements.zoomInButton, "click", () => {
     const view = map.getView();
     view.animate({ zoom: Math.min((view.getZoom() || INITIAL_ZOOM) + 1, MAX_ZOOM), duration: 180 });
   });
-  elements.zoomOutButton.addEventListener("click", () => {
+  on(elements.zoomOutButton, "click", () => {
     const view = map.getView();
     view.animate({ zoom: Math.max((view.getZoom() || INITIAL_ZOOM) - 1, MIN_ZOOM), duration: 180 });
   });
-  elements.fitButton.addEventListener("click", fitToVisibleFeatures);
-  elements.resetButton.addEventListener("click", resetFilters);
-  elements.analyzeForm.addEventListener("submit", analyzeInputText);
-  elements.batchPreviewButton.addEventListener("click", previewBatchInputFile);
-  elements.batchForm.addEventListener("submit", processBatchInputFile);
-  elements.batchFileInput.addEventListener("change", () => {
+  on(elements.fitButton, "click", fitToVisibleFeatures);
+  on(elements.resetButton, "click", resetFilters);
+  on(elements.refreshMapButton, "click", async () => {
+    setStatus("正在从数据库刷新地图点位...");
+    try {
+      await reloadComplaintData({ shouldFit: true });
+      await refreshBatchList();
+      setStatus(`已刷新地图，共加载 ${allFeatures.length} 个投诉地点。`);
+    } catch (error) {
+      setStatus(`地图刷新失败：${error.message}`, true);
+    }
+  });
+  on(elements.undoLastBatchButton, "click", deleteLatestBatch);
+  on(elements.analyzeForm, "submit", analyzeInputText);
+  on(elements.batchPreviewButton, "click", previewBatchInputFile);
+  on(elements.batchForm, "submit", processBatchInputFile);
+  on(elements.batchFileInput, "change", () => {
     currentBatchUploadId = null;
-    elements.batchProcessButton.disabled = true;
+    if (elements.batchProcessButton) {
+      elements.batchProcessButton.disabled = true;
+    }
     renderBatchResult(elements, "文件已选择，请点击读取列名。", false);
   });
-  elements.vectorBasemapButton.addEventListener("click", () => switchBasemap("vector"));
-  elements.satelliteBasemapButton.addEventListener("click", () => switchBasemap("satellite"));
+  on(elements.vectorBasemapButton, "click", () => switchBasemap("vector"));
+  on(elements.satelliteBasemapButton, "click", () => switchBasemap("satellite"));
 
   function switchBasemap(mode) {
     currentBasemap = mode;
@@ -288,12 +364,8 @@ export async function startWebGis({ setStatus }) {
   }
 
   setStatus("正在加载信访投诉点位...");
-  allFeatures = await loadComplaintFeatures();
-  typeOrder = createTypeOrder(allFeatures);
-  activeTypes = new Set(typeOrder);
-  renderFilters(elements, allFeatures, activeTypes, typeOrder, () => refreshVisibleFeatures());
-  renderDetails(elements, null);
-  refreshVisibleFeatures({ shouldFit: true });
+  await reloadComplaintData({ shouldFit: true });
+  await refreshBatchList();
   switchBasemap(currentBasemap);
   setStatus(`已加载 ${allFeatures.length} 个投诉点位。底图可在高德矢量与影像间切换；坐标：GCJ-02。`);
 }

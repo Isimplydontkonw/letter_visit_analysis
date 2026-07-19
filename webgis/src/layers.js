@@ -1,9 +1,13 @@
 function createGaodeTileLayer(title, style, visible = true) {
+  const urls = [1, 2, 3, 4].map(
+    (server) => `https://webrd0${server}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=${style}&x={x}&y={y}&z={z}`
+  );
+
   return new ol.layer.Tile({
     title,
     visible,
     source: new ol.source.XYZ({
-      url: `http://wprd0{1-4}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=${style}&x={x}&y={y}&z={z}`,
+      urls,
       crossOrigin: "anonymous",
       wrapX: true,
     }),

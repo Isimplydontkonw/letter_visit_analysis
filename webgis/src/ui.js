@@ -1,5 +1,5 @@
-import { getFeatureId, getFeatureType } from "./data.js";
-import { getTypeColor } from "./styles.js";
+import { getFeatureType } from "./data.js?v=20260719-refactor3";
+import { getTypeColor } from "./styles.js?v=20260719-refactor3";
 
 export function getElements() {
   return {
@@ -27,6 +27,9 @@ export function getElements() {
     zoomOutButton: document.getElementById("zoomOutButton"),
     fitButton: document.getElementById("fitButton"),
     resetButton: document.getElementById("resetButton"),
+    refreshMapButton: document.getElementById("refreshMapButton"),
+    undoLastBatchButton: document.getElementById("undoLastBatchButton"),
+    batchList: document.getElementById("batchList"),
   };
 }
 
@@ -121,32 +124,57 @@ function detailRow(label, value) {
   `;
 }
 
-export function renderDetails(elements, feature) {
+export function renderDetails(elements, feature, detailPayload = null) {
   if (!feature) {
     elements.featureDetails.className = "details-empty";
-    elements.featureDetails.textContent = "点击地图点位查看详情";
+    elements.featureDetails.textContent = "点击地图点位查看该地点投诉详情";
     elements.popup.hidden = true;
     return;
   }
 
+  const location = detailPayload?.location || {};
+  const complaints = detailPayload?.complaints || [];
+  const isLoading = detailPayload?.loading;
+  const error = detailPayload?.error;
+  const complaintCount = Number(location["投诉数量"] || feature.get("投诉数量") || complaints.length || 1);
+  const locationName = location["投诉地点"] || feature.get("投诉地点") || feature.get("识别地址") || feature.get("问题属地") || "-";
+
   elements.featureDetails.className = "details-content";
-  elements.featureDetails.innerHTML = [
-    detailRow("事项编号", feature.get("事项编号")),
-    detailRow("噪声分类", feature.get("噪声分类")),
-    detailRow("识别地址", feature.get("识别地址")),
-    detailRow("问题属地", feature.get("问题属地")),
-    detailRow("登记时间", feature.get("登记时间")),
-    detailRow("坐标转换", feature.get("坐标转换状态")),
-    detailRow("诉求内容", shortText(feature.get("诉求内容"), 180)),
-  ].join("");
+  elements.featureDetails.innerHTML = `
+    <div class="location-summary">
+      <strong>${escapeHtml(locationName)}</strong>
+      <span>共 ${escapeHtml(complaintCount)} 件投诉</span>
+    </div>
+    ${detailRow("主要噪声分类", location["主要噪声分类"] || feature.get("主要噪声分类") || feature.get("噪声分类"))}
+    ${detailRow("问题属地", location["问题属地"] || feature.get("问题属地"))}
+    ${detailRow("最早登记时间", location["最早登记时间"] || feature.get("最早登记时间"))}
+    ${detailRow("最新登记时间", location["最新登记时间"] || feature.get("最新登记时间"))}
+    ${isLoading ? '<div class="details-loading">正在从 complaints 数据库读取投诉明细...</div>' : ""}
+    ${error ? `<div class="details-error">${escapeHtml(error)}</div>` : ""}
+    ${complaints.length ? `<div class="complaint-list">${complaints.map(renderComplaintItem).join("")}</div>` : ""}
+  `;
 
   elements.popup.innerHTML = `
-    <h2 class="popup-title">${escapeHtml(feature.get("噪声分类") || "未匹配")}</h2>
-    <p class="popup-text">${escapeHtml(feature.get("识别地址") || feature.get("问题属地") || "-")}</p>
-    <p class="popup-text">${escapeHtml(shortText(feature.get("诉求内容"), 90))}</p>
-    <p class="popup-text">编号：${escapeHtml(getFeatureId(feature))}</p>
+    <h2 class="popup-title">${escapeHtml(locationName)}</h2>
+    <p class="popup-text">共 ${escapeHtml(complaintCount)} 件投诉</p>
+    <p class="popup-text">主要分类：${escapeHtml(location["主要噪声分类"] || feature.get("主要噪声分类") || feature.get("噪声分类") || "未匹配")}</p>
+    <p class="popup-text">最新登记：${escapeHtml(location["最新登记时间"] || feature.get("最新登记时间") || "-")}</p>
   `;
   elements.popup.hidden = false;
+}
+
+function renderComplaintItem(complaint) {
+  return `
+    <article class="complaint-item">
+      <div class="complaint-item-head">
+        <strong>${escapeHtml(complaint["事项编号"] || `#${complaint.id}`)}</strong>
+        <span>${escapeHtml(complaint["噪声分类"] || "未匹配")}</span>
+      </div>
+      <div class="complaint-time">登记：${escapeHtml(complaint["登记时间"] || "-")}</div>
+      <div class="complaint-time">新建：${escapeHtml(complaint["新建时间"] || "-")}</div>
+      <p>${escapeHtml(shortText(complaint["诉求内容"], 160))}</p>
+    </article>
+  `;
 }
 export function renderBatchColumns(elements, columns) {
   const options = columns
@@ -185,6 +213,32 @@ export function renderBatchResult(elements, result, isError = false) {
     <div>入库：${escapeHtml(result.insertedCount ?? "-")} 条；上图：${escapeHtml(result.validFeatureCount ?? 0)} 个；跳过：${escapeHtml(result.skippedFeatureCount ?? 0)} 条</div>
     <a class="download-link" href="${escapeHtml(result.downloadUrl)}" download>${escapeHtml(result.filename || "下载处理结果")}</a>
   `;
+}
+
+export function renderBatchList(elements, batches, onDelete) {
+  if (!elements.batchList) {
+    return;
+  }
+  if (!batches.length) {
+    elements.batchList.innerHTML = '<div class="batch-empty">暂无导入批次</div>';
+    return;
+  }
+
+  elements.batchList.innerHTML = batches
+    .map((batch) => `
+      <article class="batch-item">
+        <div>
+          <strong>${escapeHtml(batch.sourceFilename || "未命名文件")}</strong>
+          <span>${escapeHtml(batch.createdAt || "-")} · ${escapeHtml(batch.rowCount)} 条 · ${escapeHtml(batch.featureCount)} 个点</span>
+        </div>
+        <button type="button" data-batch-id="${escapeHtml(batch.batchId)}">撤销</button>
+      </article>
+    `)
+    .join("");
+
+  elements.batchList.querySelectorAll("button[data-batch-id]").forEach((button) => {
+    button.addEventListener("click", () => onDelete(button.dataset.batchId));
+  });
 }
 
 function renderSummaryItems(value) {

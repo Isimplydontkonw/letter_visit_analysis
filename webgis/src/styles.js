@@ -1,5 +1,5 @@
-import { FALLBACK_COLORS, TYPE_COLORS } from "./config.js";
-import { getFeatureType } from "./data.js";
+import { FALLBACK_COLORS, TYPE_COLORS } from "./config.js?v=20260719-refactor3";
+import { getFeatureType } from "./data.js?v=20260719-refactor3";
 
 export function getTypeColor(type, typeOrder = []) {
   if (TYPE_COLORS[type]) {
@@ -24,10 +24,12 @@ export function createComplaintStyle(feature, selectedFeature, typeOrder) {
   const type = getFeatureType(feature);
   const selected = selectedFeature === feature;
   const color = getTypeColor(type, typeOrder);
+  const complaintCount = Math.max(1, Number(feature.get("投诉数量") || 1));
+  const radius = Math.min(18, 7 + Math.sqrt(complaintCount) * 2);
 
   return new ol.style.Style({
     image: new ol.style.Circle({
-      radius: selected ? 10 : 7,
+      radius: selected ? radius + 3 : radius,
       fill: new ol.style.Fill({ color }),
       stroke: new ol.style.Stroke({
         color: selected ? "#16232f" : "#ffffff",

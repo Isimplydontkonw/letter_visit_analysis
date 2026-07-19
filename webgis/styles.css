@@ -161,6 +161,70 @@ select {
   opacity: 0.68;
 }
 
+.inline-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.inline-actions button,
+.batch-item button {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #182532;
+  background: #fff;
+  cursor: pointer;
+}
+
+.inline-actions button:hover,
+.inline-actions button:focus-visible,
+.batch-item button:hover,
+.batch-item button:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.batch-list {
+  display: grid;
+  gap: 8px;
+}
+
+.batch-empty,
+.batch-item {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfd;
+  font-size: 12px;
+}
+
+.batch-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.batch-item strong,
+.batch-item span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.batch-item span {
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.batch-item button {
+  padding: 0 10px;
+  color: var(--danger);
+}
+
 .analysis-result {
   padding: 12px;
   border: 1px solid var(--border);
@@ -287,6 +351,72 @@ select {
 
 .detail-row strong {
   font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.location-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.location-summary strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.location-summary span,
+.complaint-time {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.complaint-list {
+  display: grid;
+  gap: 10px;
+}
+
+.complaint-item {
+  display: grid;
+  gap: 6px;
+  padding: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.complaint-item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.complaint-item-head strong {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.complaint-item-head span {
+  padding: 2px 7px;
+  border-radius: 999px;
+  color: #24313d;
+  background: #e9eff3;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.complaint-item p {
+  margin: 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
   overflow-wrap: anywhere;
 }
 

@@ -42,6 +42,18 @@ function loadCss(url) {
   document.head.appendChild(link);
 }
 
+async function localAssetExists(url) {
+  if (!url.startsWith("./")) {
+    return true;
+  }
+  try {
+    const response = await fetch(url, { method: "HEAD", cache: "no-store" });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 async function loadOpenLayers() {
   if (window.ol) {
     return;
@@ -50,6 +62,10 @@ async function loadOpenLayers() {
   const errors = [];
   for (const candidate of OPENLAYERS_CANDIDATES) {
     try {
+      if (!(await localAssetExists(candidate.js))) {
+        errors.push(`跳过不存在的本地 OpenLayers 文件：${candidate.js}`);
+        continue;
+      }
       setStatus("正在加载 OpenLayers...");
       loadCss(candidate.css);
       await loadScript(candidate.js);
@@ -67,7 +83,7 @@ async function loadOpenLayers() {
 
 try {
   await loadOpenLayers();
-  const { startWebGis } = await import("./main.js");
+  const { startWebGis } = await import("./main.js?v=20260719-refactor3");
   await startWebGis({ setStatus });
 } catch (error) {
   setStatus(`地图初始化失败：${error.message}`, true);

@@ -30,6 +30,15 @@
           <div id="typeFilters" class="filter-list"></div>
         </section>
 
+        <section class="panel-block data-panel">
+          <h2>数据管理</h2>
+          <div class="inline-actions">
+            <button id="refreshMapButton" type="button">刷新地图</button>
+            <button id="undoLastBatchButton" type="button">撤销最新导入</button>
+          </div>
+          <div id="batchList" class="batch-list">正在读取导入批次...</div>
+        </section>
+
         <section class="panel-block query-panel">
           <h2>文本分类与地址查询</h2>
           <form id="analyzeForm" class="query-form">
@@ -99,8 +108,7 @@
       </section>
     </main>
 
-    <script src="./config.local.js"></script>
-    <script src="./data/complaints.js"></script>
-    <script type="module" src="./src/boot.js"></script>
+    <script src="./config.local.js?v=20260719-refactor3"></script>
+    <script type="module" src="./src/boot.js?v=20260719-refactor3"></script>
   </body>
 </html>

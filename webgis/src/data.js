@@ -5,37 +5,35 @@ const OFFSET = 0.00669342162296594323;
 
 export async function loadComplaintFeatures() {
   const databaseGeojson = await loadDatabaseGeojson();
-  if (databaseGeojson && databaseGeojson.features && databaseGeojson.features.length) {
+  if (databaseGeojson && Array.isArray(databaseGeojson.features)) {
     return readGcj02Features(databaseGeojson);
   }
 
-  let geojson = window.COMPLAINTS_GEOJSON || null;
-
-  if (!geojson && window.location.protocol !== "file:") {
-    const response = await fetch(GEOJSON_URL, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`GeoJSON 加载失败：${response.status}`);
-    }
-    geojson = await response.json();
+  const fallbackGeojson = await loadFallbackGeojson();
+  if (fallbackGeojson && Array.isArray(fallbackGeojson.features)) {
+    return readGcj02Features(convertGeojsonWgs84ToGcj02(fallbackGeojson));
   }
 
-  if (!geojson) {
-    throw new Error("未找到投诉点位数据，请先运行 python/prepare_webgis_data.py 生成 complaints.js 或 complaints.geojson。");
-  }
+  throw new Error("未能加载点位数据。请通过 启动WebGIS.bat 打开本地服务，或提供 webgis/data/complaints.geojson 兜底数据。");
+}
 
-  const displayGeojson = convertGeojsonWgs84ToGcj02(geojson);
-  return new ol.format.GeoJSON().readFeatures(displayGeojson, {
-    dataProjection: "EPSG:4326",
-    featureProjection: "EPSG:3857",
+export async function loadLocationComplaints(locationKey) {
+  const response = await fetch(`/api/location-complaints?locationKey=${encodeURIComponent(locationKey)}`, {
+    cache: "no-store",
   });
+  const payload = await response.json();
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || "投诉明细加载失败");
+  }
+  return payload;
 }
 
 export function getFeatureType(feature) {
-  return feature.get("噪声分类") || "未匹配";
+  return feature.get("主要噪声分类") || feature.get("噪声分类") || "未匹配";
 }
 
 export function getFeatureId(feature) {
-  return feature.get("事项编号") || "";
+  return feature.get("地点ID") || feature.get("事项编号") || "";
 }
 
 async function loadDatabaseGeojson() {
@@ -52,6 +50,44 @@ async function loadDatabaseGeojson() {
   } catch {
     return null;
   }
+}
+
+async function loadFallbackGeojson() {
+  if (window.COMPLAINTS_GEOJSON && Array.isArray(window.COMPLAINTS_GEOJSON.features)) {
+    return window.COMPLAINTS_GEOJSON;
+  }
+  if (window.COMPLAINT_GEOJSON && Array.isArray(window.COMPLAINT_GEOJSON.features)) {
+    return window.COMPLAINT_GEOJSON;
+  }
+  try {
+    const response = await fetch(GEOJSON_URL, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function loadImportBatches() {
+  const response = await fetch("/api/batches", { cache: "no-store" });
+  const payload = await response.json();
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || "批次列表加载失败");
+  }
+  return payload.batches || [];
+}
+
+export async function deleteImportBatch(batchId) {
+  const response = await fetch(`/api/batches/${encodeURIComponent(batchId)}`, {
+    method: "DELETE",
+  });
+  const payload = await response.json();
+  if (!response.ok || !payload.ok) {
+    throw new Error(payload.error || "批次撤销失败");
+  }
+  return payload;
 }
 
 export function readGcj02Features(geojson) {
