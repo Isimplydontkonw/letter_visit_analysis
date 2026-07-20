@@ -1,3 +1,9 @@
+"""把已带经纬度的 Excel 转换为 WebGIS 静态 GeoJSON。
+
+这是早期静态演示数据生成脚本；当前生产流程优先使用 SQLite API，
+但保留该脚本用于无服务演示或历史数据转换。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -24,6 +30,7 @@ def is_valid_coordinate(lng: object, lat: object) -> bool:
 
 
 def clean_value(value: object) -> object:
+    """把 pandas 空值和时间值转换为 JSON 可序列化的普通值。"""
     if pd.isna(value):
         return ""
     if hasattr(value, "isoformat"):
@@ -32,6 +39,7 @@ def clean_value(value: object) -> object:
 
 
 def row_to_feature(row: pd.Series) -> dict[str, object] | None:
+    """把单行 Excel 记录转换为 GeoJSON Feature；坐标无效则跳过。"""
     lng = row.get("经度")
     lat = row.get("纬度")
     if not is_valid_coordinate(lng, lat):
@@ -72,6 +80,7 @@ def row_to_feature(row: pd.Series) -> dict[str, object] | None:
 
 
 def convert_xlsx_to_geojson(input_path: Path, geojson_output: Path, js_output: Path) -> None:
+    """读取 Excel 并同时写出 .geojson 和旧版 complaints.js。"""
     df = pd.read_excel(input_path)
     required_columns = {"经度", "纬度"}
     missing_columns = required_columns - set(df.columns)

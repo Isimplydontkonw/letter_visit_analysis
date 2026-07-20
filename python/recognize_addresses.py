@@ -1,3 +1,9 @@
+"""从信访文本中识别地址并进行百度地理编码。
+
+该脚本既可独立处理 Excel，也被本地 WebGIS API 复用。
+地址识别是规则型方法，适合作为批处理初筛，疑难地址仍需人工校正。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +21,7 @@ import pandas as pd
 try:
     from coord_convert import transform
 except ImportError:
+    # 可选坐标转换库缺失时，调用方会退回内置转换逻辑。
     transform = None
 
 
@@ -91,6 +98,7 @@ def find_first_stop(candidate: str) -> int | None:
 
 
 def extract_address(text: object) -> tuple[str, str]:
+    """从一段投诉文本中截取最可能的地址片段，并返回识别状态。"""
     """从投诉文本中识别地址，优先截取到第一个地址截止词末尾。"""
     content = normalize_text(text)
     if not content:
@@ -121,6 +129,7 @@ def extract_address(text: object) -> tuple[str, str]:
 
 
 def build_geocode_address(address: str, region: object, use_region: bool) -> str:
+    """把识别地址和属地拼成百度地理编码查询地址。"""
     """把问题属地作为上下文拼到地址前，提高百度地理编码命中率。"""
     if not use_region or pd.isna(region):
         return address
@@ -131,6 +140,7 @@ def build_geocode_address(address: str, region: object, use_region: bool) -> str
 
 
 def baidu_geocode(address: str, ak: str, timeout: int = 10) -> dict[str, object]:
+    """调用百度 Geocoding API，返回经纬度和置信度等字段。"""
     """调用百度地图 Geocoding API，把地址转换为经纬度。"""
     if not address:
         return {"status": "SKIPPED", "message": "地址为空"}
@@ -209,6 +219,7 @@ def enrich_file(
     sleep_seconds: float,
     geocode_with_region: bool,
 ) -> None:
+    """批量读取 Excel，追加地址识别、地理编码和坐标转换字段。"""
     """读取原始表，追加地址识别和百度经纬度结果列后导出。"""
     data_df = pd.read_excel(input_path)
     if content_column not in data_df.columns:

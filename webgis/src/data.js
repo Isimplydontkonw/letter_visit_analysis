@@ -1,8 +1,11 @@
+// 地图数据加载与坐标转换工具。
+// 优先读取本地 SQLite API；没有服务时再用 GeoJSON 兜底，方便开发和演示。
 const GEOJSON_URL = "./data/complaints.geojson";
 const PI = Math.PI;
 const AXIS = 6378245.0;
 const OFFSET = 0.00669342162296594323;
 
+// 主入口：返回 OpenLayers Feature 数组，供 main.js 放入矢量图层。
 export async function loadComplaintFeatures() {
   const databaseGeojson = await loadDatabaseGeojson();
   if (databaseGeojson && Array.isArray(databaseGeojson.features)) {
@@ -11,6 +14,7 @@ export async function loadComplaintFeatures() {
 
   const fallbackGeojson = await loadFallbackGeojson();
   if (fallbackGeojson && Array.isArray(fallbackGeojson.features)) {
+    // 旧 GeoJSON 通常是 WGS84，经转换后才能和高德 GCJ-02 底图对齐。
     return readGcj02Features(convertGeojsonWgs84ToGcj02(fallbackGeojson));
   }
 
@@ -28,14 +32,17 @@ export async function loadLocationComplaints(locationKey) {
   return payload;
 }
 
+// 聚合后的数据库点位优先使用“主要噪声分类”，旧 GeoJSON 点位则只有“噪声分类”。
 export function getFeatureType(feature) {
   return feature.get("主要噪声分类") || feature.get("噪声分类") || "未匹配";
 }
 
+// 点位详情和选中状态需要一个稳定 ID；地点聚合 ID 优先于原始事项编号。
 export function getFeatureId(feature) {
   return feature.get("地点ID") || feature.get("事项编号") || "";
 }
 
+// 本地服务可用时从 SQLite 读取，失败时静默返回 null 交给兜底数据。
 async function loadDatabaseGeojson() {
   if (window.location.protocol === "file:") {
     return null;
@@ -52,6 +59,7 @@ async function loadDatabaseGeojson() {
   }
 }
 
+// 支持两类旧数据：页面全局变量和静态 GeoJSON 文件。
 async function loadFallbackGeojson() {
   if (window.COMPLAINTS_GEOJSON && Array.isArray(window.COMPLAINTS_GEOJSON.features)) {
     return window.COMPLAINTS_GEOJSON;
@@ -70,6 +78,7 @@ async function loadFallbackGeojson() {
   }
 }
 
+// 数据管理面板读取导入批次列表，用于显示和撤销。
 export async function loadImportBatches() {
   const response = await fetch("/api/batches", { cache: "no-store" });
   const payload = await response.json();
@@ -79,6 +88,7 @@ export async function loadImportBatches() {
   return payload.batches || [];
 }
 
+// 删除一个批次后，后端会同时重建地点聚合表。
 export async function deleteImportBatch(batchId) {
   const response = await fetch(`/api/batches/${encodeURIComponent(batchId)}`, {
     method: "DELETE",
@@ -90,6 +100,7 @@ export async function deleteImportBatch(batchId) {
   return payload;
 }
 
+// GeoJSON 坐标已经是 GCJ-02 时直接读入 EPSG:3857，供 OpenLayers 渲染。
 export function readGcj02Features(geojson) {
   return new ol.format.GeoJSON().readFeatures(geojson, {
     dataProjection: "EPSG:4326",
@@ -97,6 +108,7 @@ export function readGcj02Features(geojson) {
   });
 }
 
+// 兼容旧数据：原始导出文件多为 WGS84，需要转成 GCJ-02 贴合高德底图。
 function convertGeojsonWgs84ToGcj02(geojson) {
   return {
     ...geojson,
@@ -123,6 +135,7 @@ function convertGeojsonWgs84ToGcj02(geojson) {
   };
 }
 
+// WGS84 -> GCJ-02 公开公式，主要用于旧静态数据兜底展示。
 function wgs84ToGcj02(lng, lat) {
   if (!Number.isFinite(lng) || !Number.isFinite(lat) || outOfChina(lng, lat)) {
     return [lng, lat];

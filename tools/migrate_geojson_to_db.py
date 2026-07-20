@@ -1,3 +1,9 @@
+"""把历史 complaints.geojson 迁移到 SQLite 数据库。
+
+用于从早期静态 GeoJSON 演示版本升级到当前数据库驱动版本。
+迁移时会生成一个独立 batch_id，便于之后在网页中撤销该批次。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -21,11 +27,13 @@ GEOJSON_PATH = PROJECT_ROOT / "webgis" / "data" / "complaints.geojson"
 
 
 def prop(properties: dict[str, object], key: str) -> object:
+    """读取 GeoJSON properties 字段，None 统一转为空字符串。"""
     value = properties.get(key)
     return "" if value is None else value
 
 
 def as_float(value: object) -> float | None:
+    """尽量转换为 float，失败时返回 None 供上层跳过无效坐标。"""
     try:
         return float(value)
     except (TypeError, ValueError):
@@ -33,6 +41,7 @@ def as_float(value: object) -> float | None:
 
 
 def ensure_database(conn: sqlite3.Connection) -> None:
+    """创建迁移所需的 complaints 表和索引。"""
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS complaints (
@@ -65,6 +74,7 @@ def ensure_database(conn: sqlite3.Connection) -> None:
 
 
 def migrate(geojson_path: Path, db_path: Path) -> dict[str, int]:
+    """执行迁移，并返回插入、重复跳过和无效坐标跳过数量。"""
     geojson = json.loads(geojson_path.read_text(encoding="utf-8"))
     features = geojson.get("features") or []
 

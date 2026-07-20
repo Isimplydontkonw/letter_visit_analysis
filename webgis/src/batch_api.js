@@ -1,3 +1,5 @@
+// 批量处理 API 封装层。
+// 前端页面只关心“预览列名”和“处理文件”两个动作，具体 HTTP 细节集中在这里。
 export async function previewBatchFile(file) {
   const body = new FormData();
   body.append("file", file);
@@ -17,6 +19,7 @@ export async function processBatchFile({ uploadId, contentColumn, regionColumn }
   return readJsonResponse(response);
 }
 
+// 统一解析后端 JSON 响应，让调用方只处理成功结果或 Error。
 async function readJsonResponse(response) {
   let payload = null;
   try {

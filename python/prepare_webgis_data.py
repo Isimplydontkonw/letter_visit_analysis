@@ -1,3 +1,9 @@
+"""生成 WebGIS 点位数据的离线预处理脚本。
+
+流程：读取原始信访 Excel -> 噪声分类 -> 地址识别/百度地理编码 ->
+坐标转换 -> 输出 GeoJSON、JS 兜底数据和带处理结果的 Excel。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -15,6 +21,7 @@ from recognize_addresses import baidu_geocode, extract_address
 try:
     from coord_convert import transform
 except ImportError:
+    # coord_convert 是可选依赖；缺失时使用本文件内置的公开公式兜底。
     transform = None
 
 
@@ -110,6 +117,7 @@ def transform_with_coord_convert(lng: float, lat: float, names: tuple[str, ...])
 
 
 def bd09_to_wgs84_and_gcj02(lng: float, lat: float) -> dict[str, object]:
+    """将百度 BD-09 坐标转换为 WGS84 和 GCJ-02 两套坐标。"""
     """百度 BD-09 坐标转 WGS84 和 GCJ-02，优先依据 coord_convert.transform。"""
     direct_wgs = transform_with_coord_convert(
         lng,
@@ -175,6 +183,7 @@ def get_existing_value(row: pd.Series, column: str) -> object:
 
 
 def geocode_or_use_existing(row: pd.Series, ak: str | None) -> dict[str, object]:
+    """优先复用表格内已有坐标；没有坐标时才调用百度地理编码。"""
     """优先使用已有坐标；没有坐标且提供 AK 时再调用百度地理编码。"""
     raw_lng = get_existing_value(row, "经度")
     raw_lat = get_existing_value(row, "纬度")
@@ -241,6 +250,7 @@ def safe_json_value(value: object) -> object:
 
 
 def build_geojson(df: pd.DataFrame) -> dict[str, object]:
+    """把处理后的 DataFrame 转成前端可读取的 GeoJSON FeatureCollection。"""
     features = []
     for _, row in df.iterrows():
         lng = row.get("GCJ02经度")
@@ -281,6 +291,7 @@ def prepare_data(
     enriched_output: Path,
     ak: str | None,
 ) -> None:
+    """执行完整预处理流水线，并把多种输出文件写入目标路径。"""
     rules = load_keyword_rules(keyword_path)
     df = pd.read_excel(input_path)
 

@@ -1,6 +1,8 @@
+// 点位样式：按噪声类型取色，并根据聚合投诉数量调整圆点大小。
 import { FALLBACK_COLORS, TYPE_COLORS } from "./config.js?v=20260719-refactor3";
 import { getFeatureType } from "./data.js?v=20260719-refactor3";
 
+// 固定配色优先，未知类型按类型排序位置轮换兜底色。
 export function getTypeColor(type, typeOrder = []) {
   if (TYPE_COLORS[type]) {
     return TYPE_COLORS[type];
@@ -9,6 +11,7 @@ export function getTypeColor(type, typeOrder = []) {
   return FALLBACK_COLORS[index % FALLBACK_COLORS.length];
 }
 
+// 高亮点用于单条文本识别结果；普通点可按聚合投诉数量放大。
 export function createComplaintStyle(feature, selectedFeature, typeOrder) {
   if (feature.get("isHighlight")) {
     return new ol.style.Style({

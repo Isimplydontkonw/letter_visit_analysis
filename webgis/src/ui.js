@@ -1,6 +1,9 @@
+// UI 渲染工具集合。
+// 这里尽量只负责 DOM 读写，不直接维护地图状态，状态由 main.js 管理。
 import { getFeatureType } from "./data.js?v=20260719-refactor3";
 import { getTypeColor } from "./styles.js?v=20260719-refactor3";
 
+// 集中获取 DOM 节点，避免各模块散落 document.getElementById。
 export function getElements() {
   return {
     totalCount: document.getElementById("totalCount"),
@@ -33,6 +36,7 @@ export function getElements() {
   };
 }
 
+// 单条文本识别结果面板。result 可能来自本地 API，也可能来自浏览器兜底分析。
 export function renderAnalysisResult(elements, result, isError = false) {
   elements.analysisResult.classList.toggle("error", isError);
   if (isError) {
@@ -49,6 +53,7 @@ export function renderAnalysisResult(elements, result, isError = false) {
   `;
 }
 
+// 所有进入 innerHTML 的文本都先转义，避免用户上传内容影响页面结构。
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -58,11 +63,13 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
+// 明细列表里展示长文本时做轻量截断，完整内容仍保存在后端结果中。
 export function shortText(value, maxLength = 120) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.length > maxLength ? `${text.slice(0, maxLength)}...` : text;
 }
 
+// 统计当前 Feature 数组中各噪声类型数量。
 export function countByType(features) {
   return features.reduce((acc, feature) => {
     const type = getFeatureType(feature);
@@ -71,11 +78,13 @@ export function countByType(features) {
   }, {});
 }
 
+// 类型排序按数量倒序，数量相同按中文排序，保证筛选和颜色稳定。
 export function createTypeOrder(features) {
   const counts = countByType(features);
   return Object.keys(counts).sort((a, b) => counts[b] - counts[a] || a.localeCompare(b, "zh-CN"));
 }
 
+// 噪声类型筛选列表，每个 checkbox 的变更通过 onChange 回到 main.js。
 export function renderFilters(elements, allFeatures, activeTypes, typeOrder, onChange) {
   const counts = countByType(allFeatures);
   elements.typeFilters.innerHTML = typeOrder
@@ -101,6 +110,7 @@ export function renderFilters(elements, allFeatures, activeTypes, typeOrder, onC
   });
 }
 
+// 侧栏统计只展示当前可见点位，不展示被筛选掉的类型。
 export function renderStats(elements, visibleFeatures, typeOrder) {
   const counts = countByType(visibleFeatures);
   elements.typeStats.innerHTML = Object.entries(counts)
@@ -115,6 +125,7 @@ export function renderStats(elements, visibleFeatures, typeOrder) {
     .join("");
 }
 
+// 详情行的小模板，统一空值显示。
 function detailRow(label, value) {
   return `
     <div class="detail-row">
@@ -124,6 +135,7 @@ function detailRow(label, value) {
   `;
 }
 
+// 点位详情面板：先显示聚合地点概要，再可追加该地点下的投诉明细列表。
 export function renderDetails(elements, feature, detailPayload = null) {
   if (!feature) {
     elements.featureDetails.className = "details-empty";
@@ -163,6 +175,7 @@ export function renderDetails(elements, feature, detailPayload = null) {
   elements.popup.hidden = false;
 }
 
+// 投诉明细卡片，内容来自 /api/location-complaints。
 function renderComplaintItem(complaint) {
   return `
     <article class="complaint-item">
@@ -176,6 +189,8 @@ function renderComplaintItem(complaint) {
     </article>
   `;
 }
+
+// 批量处理列名预览后，填充文本列和属地列两个下拉框。
 export function renderBatchColumns(elements, columns) {
   const options = columns
     .map((column) => `<option value="${escapeHtml(column)}">${escapeHtml(column)}</option>`)
@@ -192,6 +207,7 @@ export function renderBatchColumns(elements, columns) {
   elements.batchProcessButton.disabled = !columns.length;
 }
 
+// 批量处理结果面板，包含统计摘要和结果文件下载链接。
 export function renderBatchResult(elements, result, isError = false) {
   elements.batchResult.classList.toggle("error", isError);
   if (isError) {
@@ -215,6 +231,7 @@ export function renderBatchResult(elements, result, isError = false) {
   `;
 }
 
+// 导入批次列表，撤销按钮事件交回 main.js 执行。
 export function renderBatchList(elements, batches, onDelete) {
   if (!elements.batchList) {
     return;
@@ -241,6 +258,7 @@ export function renderBatchList(elements, batches, onDelete) {
   });
 }
 
+// 把后端返回的分类/地址/地理编码统计对象渲染成简洁文本。
 function renderSummaryItems(value) {
   if (!value || !Object.keys(value).length) {
     return "-";

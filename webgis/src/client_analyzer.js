@@ -1,9 +1,12 @@
+// 浏览器端单条文本分析兜底逻辑。
+// 正常情况下优先调用本地 Python API；服务不可用时才使用这里的简化规则。
 const KEYWORD_URL = "./data/noise_keywords.tsv";
 const BAIDU_AK = window.WEBGIS_CONFIG?.BAIDU_MAP_AK || "";
 const X_PI = Math.PI * 3000.0 / 180.0;
 
 let keywordRulesPromise = null;
 
+// 单条投诉文本分析入口：分类、抽地址、地理编码，并返回可直接上图的字段。
 export async function analyzeComplaintText(text, region) {
   const serverResult = await analyzeByLocalApi(text, region);
   if (serverResult) {
@@ -49,6 +52,7 @@ export async function analyzeComplaintText(text, region) {
 }
 
 
+// 本地 API 使用 Python 中更完整的规则和百度请求节流，是优先路径。
 async function analyzeByLocalApi(text, region) {
   try {
     const response = await fetch("/api/analyze", {
@@ -66,6 +70,7 @@ async function analyzeByLocalApi(text, region) {
   }
 }
 
+// 后端返回 WGS84 时在浏览器补算 GCJ-02，保证点位和高德底图一致。
 function normalizeServerResult(result) {
   const normalized = { ...result };
   if (Number.isFinite(Number(normalized["WGS84经度"])) && Number.isFinite(Number(normalized["WGS84纬度"]))) {
@@ -76,6 +81,7 @@ function normalizeServerResult(result) {
   return normalized;
 }
 
+// 关键字 TSV 只加载一次，避免每次单条识别都重复请求文件。
 async function loadKeywordRules() {
   if (!keywordRulesPromise) {
     keywordRulesPromise = fetch(KEYWORD_URL, { cache: "no-store" })
@@ -101,6 +107,7 @@ async function loadKeywordRules() {
   return keywordRulesPromise;
 }
 
+// 简化分类：统计每类命中关键词数量，命中数最多者获胜。
 function classifyText(text, rules) {
   const details = [];
   for (const rule of rules) {
@@ -128,6 +135,7 @@ function classifyText(text, rules) {
   };
 }
 
+// 轻量地址抽取规则，用于没有本地 Python 服务时的应急查询。
 function extractAddress(text) {
   const content = String(text || "").replace(/\s+/g, "");
   const startPattern = /(?:[\u4e00-\u9fa5]{2,}(?:省|市|区|县|镇|乡|街道)|[\u4e00-\u9fa5A-Za-z0-9·-]{2,}(?:路|街|巷|弄|大道)|[\u4e00-\u9fa5A-Za-z0-9·-]{2,}(?:社区|小区|村|园|苑|府|城|大厦|广场|中心|公司|工厂|厂))/;
@@ -175,6 +183,7 @@ function buildQueryAddress(region, address) {
   return address;
 }
 
+// 用百度 JSONP 地理编码，避免浏览器跨域限制。
 function geocodeByBaidu(address) {
   if (!BAIDU_AK) {
     return Promise.resolve({ ok: false, status: "NO_AK", message: "请在 webgis/config.local.js 中配置百度地图 AK" });
@@ -218,6 +227,7 @@ function geocodeByBaidu(address) {
   });
 }
 
+// 百度返回 BD-09，这里转换到 GCJ-02 后才能叠加到高德底图。
 function bd09ToGcj02(lng, lat) {
   const x = lng - 0.0065;
   const y = lat - 0.006;
@@ -245,6 +255,7 @@ function transformLng(x, y) {
   return ret;
 }
 
+// 服务端仅返回 WGS84 时使用这个公式兜底转换。
 function wgs84ToGcj02(lng, lat) {
   if (outOfChina(lng, lat)) {
     return [lng, lat];

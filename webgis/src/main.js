@@ -16,9 +16,12 @@ import {
   renderStats,
 } from "./ui.js?v=20260719-refactor3";
 
+// WebGIS 主控制器：创建地图、维护前端状态、绑定页面交互。
 export async function startWebGis({ setStatus }) {
   const elements = getElements();
   const vectorSource = new ol.source.Vector();
+
+  // 这些状态只存在于浏览器内存中；真实导入数据以 SQLite 为准。
   let allFeatures = [];
   let activeTypes = new Set();
   let selectedFeature = null;
@@ -32,6 +35,7 @@ export async function startWebGis({ setStatus }) {
   ));
   const basemapLayers = createGaodeBasemapLayers();
 
+  // OpenLayers 地图使用 EPSG:3857，业务坐标在 data.js 中由经纬度读入时转换。
   const map = new ol.Map({
     target: "map",
     layers: [
@@ -51,15 +55,17 @@ export async function startWebGis({ setStatus }) {
   const popupOverlay = new ol.Overlay({
     element: elements.popup,
     positioning: "bottom-center",
-    stopEvent: false,
+    stopEvent: true,
     offset: [0, -14],
   });
   map.addOverlay(popupOverlay);
 
+  // 根据筛选勾选状态返回当前应该显示的点位。
   function getVisibleFeatures() {
     return allFeatures.filter((feature) => activeTypes.has(getFeatureType(feature)));
   }
 
+  // 将视图缩放到当前矢量源范围；没有点位时保持现状。
   function fitToVisibleFeatures() {
     const visibleFeatures = vectorSource.getFeatures();
     if (!visibleFeatures.length) {
@@ -72,6 +78,7 @@ export async function startWebGis({ setStatus }) {
     });
   }
 
+  // 重新绘制点位图层和侧栏统计，是筛选、刷新、导入后的公共收口。
   function refreshVisibleFeatures({ shouldFit = false } = {}) {
     const visibleFeatures = getVisibleFeatures();
     vectorSource.clear();
@@ -92,12 +99,14 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // 恢复全部噪声类型勾选。
   function resetFilters() {
     activeTypes = new Set(typeOrder);
     renderFilters(elements, allFeatures, activeTypes, typeOrder, () => refreshVisibleFeatures());
     refreshVisibleFeatures({ shouldFit: true });
   }
 
+  // 从后端重新读取完整点位，避免批量导入后前端状态和数据库不一致。
   async function reloadComplaintData({ shouldFit = false } = {}) {
     allFeatures = await loadComplaintFeatures();
     typeOrder = createTypeOrder(allFeatures);
@@ -109,6 +118,7 @@ export async function startWebGis({ setStatus }) {
     refreshVisibleFeatures({ shouldFit });
   }
 
+  // 数据管理面板的批次列表；服务不可用时不影响地图主体初始化。
   async function refreshBatchList() {
     if (!elements.batchList || !elements.undoLastBatchButton) {
       return [];
@@ -125,6 +135,7 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // 撤销一个导入批次，本质是删除 SQLite 中该 batch_id 的记录。
   async function deleteBatchById(batchId) {
     if (!batchId) {
       return;
@@ -143,6 +154,7 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // “撤销最新导入”默认取批次列表第一条，后端按创建时间倒序返回。
   async function deleteLatestBatch() {
     const batches = await refreshBatchList();
     if (!batches.length) {
@@ -152,6 +164,7 @@ export async function startWebGis({ setStatus }) {
     await deleteBatchById(batches[0].batchId);
   }
 
+  // 点选地图点位后，先显示聚合点概要，再按地点键拉取原始投诉明细。
   async function selectFeature(feature) {
     selectedFeature = feature || null;
     if (!selectedFeature) {
@@ -181,6 +194,7 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // 单条文本识别得到临时结果时，在地图上插入一个黄色高亮点。
   function addHighlightedResult(result) {
     if (!Number.isFinite(Number(result["GCJ02经度"])) || !Number.isFinite(Number(result["GCJ02纬度"]))) {
       setStatus("已完成分类和地址识别，但没有获得有效经纬度，无法在地图上高亮定位。", true);
@@ -243,6 +257,7 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // 第一步上传文件只读取列名，真正批处理要等用户选择文本列/属地列。
   async function previewBatchInputFile() {
     const file = elements.batchFileInput.files?.[0];
     if (!file) {
@@ -272,6 +287,7 @@ export async function startWebGis({ setStatus }) {
     }
   }
 
+  // 批处理完成后重新读取数据库点位，确保地图展示的是已入库结果。
   async function processBatchInputFile(event) {
     event.preventDefault();
     if (!currentBatchUploadId) {
@@ -305,6 +321,8 @@ export async function startWebGis({ setStatus }) {
       elements.batchProcessButton.textContent = "批量处理并导出";
     }
   }
+
+  // 地图本身的点击和悬停交互，只作用于投诉点位图层。
   map.on("singleclick", (event) => {
     const feature = map.forEachFeatureAtPixel(event.pixel, (candidate) => candidate, { hitTolerance: 6 });
     selectFeature(feature);
@@ -315,6 +333,7 @@ export async function startWebGis({ setStatus }) {
     map.getTargetElement().style.cursor = hit ? "pointer" : "";
   });
 
+  // 统一的容错事件绑定：旧 HTML 缓存缺少某个按钮时，也不阻断地图初始化。
   function on(element, eventName, handler) {
     if (element) {
       element.addEventListener(eventName, handler);
@@ -363,6 +382,7 @@ export async function startWebGis({ setStatus }) {
     setStatus(`已切换为${currentBasemap === "vector" ? "高德矢量底图" : "高德影像底图"}；投诉点位保持不变。`);
   }
 
+  // 初始化顺序：先加载数据和侧栏，再设置底图状态，最后更新状态栏。
   setStatus("正在加载信访投诉点位...");
   await reloadComplaintData({ shouldFit: true });
   await refreshBatchList();

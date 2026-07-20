@@ -1,3 +1,9 @@
+"""噪声信访文本分类脚本。
+
+读取噪声关键词规则表，对 Excel 中的“诉求内容”逐条匹配，
+输出主分类、命中关键词、命中数量、并列分类和全部命中明细。
+"""
+
 from __future__ import annotations
 
 import argparse

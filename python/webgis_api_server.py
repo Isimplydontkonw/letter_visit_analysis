@@ -1,3 +1,9 @@
+"""WebGIS 本地 HTTP API 服务。
+
+负责提供静态网页、批量 Excel/CSV 处理、单条文本识别、SQLite 入库、
+地图点位 GeoJSON、地点投诉明细、批次列表和批次撤销接口。
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -39,6 +45,9 @@ RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "batch"
 DB_PATH = PROJECT_ROOT / ".runtime" / "webgis.db"
 UPLOADS: dict[str, dict[str, object]] = {}
 DEFAULT_GEOCODE_SLEEP_SECONDS = 0.5
+
+# 百度地理编码和 SQLite 都使用锁：
+# 前者避免并发触发 AK 限流，后者避免多请求同时写本地数据库。
 GEOCODE_LOCK = threading.Lock()
 DB_LOCK = threading.Lock()
 
@@ -138,6 +147,7 @@ def normalize_location_text(value: object) -> str:
 
 
 def complaint_location_key(record: sqlite3.Row | dict[str, object]) -> str:
+    """生成地点聚合键：优先地址，其次坐标，确保同地点投诉聚合到一个点。"""
     address = normalize_location_text(record["address"] or record["geocode_address"] or record["region"])
     if address:
         return "addr:" + hashlib.sha1(address.encode("utf-8")).hexdigest()
@@ -174,6 +184,7 @@ def most_common_noise_type(records: list[sqlite3.Row]) -> str:
 
 
 def location_complaints(location_key: str) -> dict[str, object] | None:
+    """按地点键读取该聚合点下的全部原始投诉明细。"""
     if not DB_PATH.exists():
         return None
     rebuild_complaint_locations()
@@ -219,6 +230,7 @@ def location_complaints(location_key: str) -> dict[str, object] | None:
 
 
 def rebuild_complaint_locations() -> None:
+    """根据 complaints 原始记录重建 complaint_locations 聚合表。"""
     if not DB_PATH.exists():
         return
     ensure_database()
@@ -645,12 +657,16 @@ def summarize_result(df: pd.DataFrame) -> dict[str, object]:
 
 
 class WebGisApiHandler(SimpleHTTPRequestHandler):
+    """同时承担静态文件服务和 JSON API 路由的请求处理器。"""
+
     server_version = "WebGISBatchServer/1.0"
 
     def log_message(self, format: str, *args: object) -> None:
+        """关闭默认访问日志，保持 BAT 启动窗口简洁。"""
         return
 
     def do_GET(self) -> None:
+        """处理健康检查、地图数据、地点明细、批次列表和文件下载。"""
         parsed = urlparse(self.path)
         if parsed.path == "/api/health":
             self.send_json({"ok": True})
@@ -679,6 +695,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         super().do_GET()
 
     def do_DELETE(self) -> None:
+        """处理批次撤销请求。"""
         parsed = urlparse(self.path)
         try:
             if parsed.path.startswith("/api/batches/"):
@@ -691,6 +708,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
             self.send_json({"ok": False, "error": str(exc)}, status=500)
 
     def do_POST(self) -> None:
+        """处理单条识别、批量预览和批量处理请求。"""
         parsed = urlparse(self.path)
         try:
             if parsed.path == "/api/analyze":
@@ -711,6 +729,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         self.end_headers()
 
     def translate_path(self, path: str) -> str:
+        """把 URL 路径限制到 webgis 目录内，避免暴露项目其他文件。"""
         path = unquote(urlparse(path).path)
         if path == "/":
             return str(WEBGIS_DIR / "index.html")
@@ -718,6 +737,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         return str(WEBGIS_DIR.joinpath(*safe_parts))
 
     def end_headers(self) -> None:
+        """统一添加跨域和禁缓存头，减少本地调试时旧脚本缓存问题。"""
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
@@ -725,6 +745,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         super().end_headers()
 
     def guess_type(self, path: str) -> str:
+        """补充浏览器正确加载模块脚本、样式和 GeoJSON 所需的 MIME 类型。"""
         if path.endswith(".geojson"):
             return "application/geo+json; charset=utf-8"
         if path.endswith(".js"):
@@ -736,10 +757,12 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
     def read_json(self) -> dict[str, object]:
+        """读取请求体 JSON；空请求体按空对象处理。"""
         length = int(self.headers.get("Content-Length", "0"))
         return json.loads(self.rfile.read(length).decode("utf-8") or "{}")
 
     def handle_analyze(self) -> None:
+        """单条文本识别接口，返回分类、地址和坐标字段。"""
         payload = self.read_json()
         text = str(payload.get("text", "")).strip()
         region = str(payload.get("region", "浙江省")).strip() or "浙江省"
@@ -748,6 +771,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
             return
         self.send_json({"ok": True, "result": analyze_single_text(text, region)})
     def handle_batch_preview(self) -> None:
+        """上传文件并读取列名，供前端选择文本列和属地列。"""
         length = int(self.headers.get("Content-Length", "0"))
         filename, file_bytes = parse_multipart_file(self.headers, self.rfile.read(length))
         if not filename:
@@ -778,6 +802,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         )
 
     def handle_batch_process(self) -> None:
+        """执行批量分类、地址识别、地理编码、入库和结果文件输出。"""
         payload = self.read_json()
         upload_id = str(payload.get("uploadId", ""))
         content_column = str(payload.get("contentColumn", "")).strip()
@@ -819,6 +844,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         )
 
     def handle_download(self, query: str) -> None:
+        """下载批处理结果文件。文件只在当前服务进程的 UPLOADS 中登记。"""
         output_id = parse_qs(query).get("id", [""])[0]
         if output_id not in UPLOADS:
             self.send_error(404, "File not found")
@@ -839,6 +865,7 @@ class WebGisApiHandler(SimpleHTTPRequestHandler):
         self.wfile.write(data)
 
     def send_json(self, payload: dict[str, object], status: int = 200) -> None:
+        """统一 JSON 响应格式和 UTF-8 编码。"""
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
